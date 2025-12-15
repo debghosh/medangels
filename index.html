@@ -1,0 +1,1762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedAngels - On-Demand Medical Services</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .pulse-dot { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        #chatMessages::-webkit-scrollbar { width: 8px; }
+        #chatMessages::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        #chatMessages::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        #chatMessages::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div id="app"></div>
+
+    <script>
+        const state = {
+            currentView: 'landing',
+            currentRole: null,
+            patientRequests: [],
+            providerRequests: [],
+            providers: [
+                { id: 1, name: 'Dr. Sarah Chen', specialty: 'Primary Care', available: true, rating: 4.9, completed: 342 },
+                { id: 2, name: 'Dr. Michael Torres', specialty: 'Urgent Care', available: false, rating: 4.8, completed: 256 },
+                { id: 3, name: 'Emily Rodriguez RN', specialty: 'Nursing', available: true, rating: 4.9, completed: 428 },
+                { id: 4, name: 'Dr. James Kim', specialty: 'Physical Therapy', available: true, rating: 4.7, completed: 198 },
+            ],
+            currentProvider: null,
+            aiMessages: [],
+            aiContext: {},
+            aiState: 'initial',
+            requestCounter: 1,
+            selectedService: null,
+            pendingRequest: null,
+            onboardingData: {},
+            onboardingStep: 1
+        };
+
+        const registeredCharities = [
+            { id: 'redcross', name: 'American Red Cross' },
+            { id: 'doctorswb', name: 'Doctors Without Borders' },
+            { id: 'directrelief', name: 'Direct Relief' },
+            { id: 'partnersinhealth', name: 'Partners In Health' },
+            { id: 'operationsmile', name: 'Operation Smile' },
+            { id: 'stjude', name: 'St. Jude Children\'s Research Hospital' },
+            { id: 'feedingamerica', name: 'Feeding America' },
+            { id: 'habitat', name: 'Habitat for Humanity' },
+            { id: 'unitedway', name: 'United Way' },
+            { id: 'salvationarmy', name: 'The Salvation Army' }
+        ];
+
+        const services = [
+            { id: 'primary', name: 'Primary Care', icon: '🩺', basePrice: 75, time: '30-45 min' },
+            { id: 'urgent', name: 'Urgent Care', icon: '🚑', basePrice: 125, time: '20-30 min' },
+            { id: 'nurse', name: 'Nursing Visit', icon: '💉', basePrice: 50, time: '20-30 min' },
+            { id: 'physical', name: 'Physical Therapy', icon: '🏃', basePrice: 85, time: '45-60 min' },
+            { id: 'chiro', name: 'Chiropractor', icon: '🦴', basePrice: 70, time: '30-40 min' },
+            { id: 'mental', name: 'Mental Health', icon: '🧠', basePrice: 100, time: '50-60 min' },
+            { id: 'lab', name: 'Lab/Blood Draw', icon: '🔬', basePrice: 40, time: '15-20 min' }
+        ];
+
+        const serviceFormConfigs = {
+            primary: {
+                fields: [
+                    { name: 'symptoms', label: 'Primary Symptoms', type: 'textarea', required: true },
+                    { name: 'duration', label: 'Duration of Symptoms', type: 'select', options: ['Less than 24 hours', '1-3 days', '3-7 days', 'More than a week'], required: true },
+                    { name: 'previousConditions', label: 'Any Previous Medical Conditions?', type: 'text', required: false },
+                    { name: 'urgency', label: 'Urgency Level', type: 'select', options: ['Routine', 'Moderate', 'High'], required: true }
+                ],
+                pricingFactors: { urgency: { 'High': 1.3, 'Moderate': 1.1, 'Routine': 1.0 }}
+            },
+            urgent: {
+                fields: [
+                    { name: 'chiefComplaint', label: 'What is the urgent issue?', type: 'textarea', required: true },
+                    { name: 'severity', label: 'Pain/Severity Level (1-10)', type: 'select', options: ['1-3 (Mild)', '4-6 (Moderate)', '7-10 (Severe)'], required: true },
+                    { name: 'injury', label: 'Is this related to an injury?', type: 'select', options: ['Yes', 'No'], required: true },
+                    { name: 'medications', label: 'Current Medications', type: 'text', required: false }
+                ],
+                pricingFactors: { severity: { '7-10 (Severe)': 1.2, '4-6 (Moderate)': 1.1, '1-3 (Mild)': 1.0 }}
+            },
+            nurse: {
+                fields: [
+                    { name: 'serviceType', label: 'Type of Nursing Service', type: 'select', options: ['Wound Care', 'Injection/Medication', 'IV Therapy', 'Vital Signs Check', 'Other'], required: true },
+                    { name: 'details', label: 'Service Details', type: 'textarea', required: true },
+                    { name: 'equipment', label: 'Special Equipment Needed?', type: 'select', options: ['None', 'Patient will provide', 'Provider should bring'], required: true },
+                    { name: 'frequency', label: 'Frequency', type: 'select', options: ['One-time visit', 'Multiple visits needed'], required: true }
+                ],
+                pricingFactors: { 
+                    serviceType: { 'IV Therapy': 1.5, 'Wound Care': 1.2, 'Injection/Medication': 1.0, 'Vital Signs Check': 0.9, 'Other': 1.0 },
+                    equipment: { 'Provider should bring': 1.2, 'Patient will provide': 1.0, 'None': 1.0 }
+                }
+            },
+            physical: {
+                fields: [
+                    { name: 'bodyArea', label: 'Affected Body Area', type: 'select', options: ['Back', 'Neck', 'Shoulder', 'Knee', 'Hip', 'Ankle', 'Other'], required: true },
+                    { name: 'painLevel', label: 'Current Pain Level (1-10)', type: 'select', options: ['1-3 (Mild)', '4-6 (Moderate)', '7-10 (Severe)'], required: true },
+                    { name: 'injuryDate', label: 'When did the issue start?', type: 'select', options: ['Within last week', '1-4 weeks ago', '1-3 months ago', 'More than 3 months'], required: true },
+                    { name: 'priorTherapy', label: 'Previous Physical Therapy?', type: 'select', options: ['Yes', 'No'], required: true },
+                    { name: 'goals', label: 'Treatment Goals', type: 'textarea', required: true }
+                ],
+                pricingFactors: { 
+                    painLevel: { '7-10 (Severe)': 1.15, '4-6 (Moderate)': 1.0, '1-3 (Mild)': 1.0 },
+                    priorTherapy: { 'Yes': 1.1, 'No': 1.0 }
+                }
+            },
+            chiro: {
+                fields: [
+                    { name: 'area', label: 'Area of Concern', type: 'select', options: ['Lower Back', 'Upper Back', 'Neck', 'Full Spine', 'Other'], required: true },
+                    { name: 'issueType', label: 'Issue Type', type: 'select', options: ['Pain', 'Stiffness', 'Injury', 'Maintenance/Wellness'], required: true },
+                    { name: 'duration', label: 'How long has this been an issue?', type: 'select', options: ['Less than a week', '1-4 weeks', '1-6 months', 'Chronic (6+ months)'], required: true },
+                    { name: 'previousAdjustments', label: 'Previous chiropractic care?', type: 'select', options: ['Yes, recently', 'Yes, but not recently', 'No'], required: true }
+                ],
+                pricingFactors: { 
+                    area: { 'Full Spine': 1.3, 'Lower Back': 1.0, 'Upper Back': 1.0, 'Neck': 1.0, 'Other': 1.0 },
+                    issueType: { 'Injury': 1.2, 'Pain': 1.0, 'Stiffness': 1.0, 'Maintenance/Wellness': 0.9 }
+                }
+            },
+            mental: {
+                fields: [
+                    { name: 'sessionType', label: 'Session Type', type: 'select', options: ['Initial Consultation', 'Follow-up Session', 'Crisis Support'], required: true },
+                    { name: 'concerns', label: 'Primary Concerns', type: 'textarea', required: true },
+                    { name: 'previousTherapy', label: 'Previous mental health treatment?', type: 'select', options: ['Yes', 'No'], required: true },
+                    { name: 'sessionLength', label: 'Preferred Session Length', type: 'select', options: ['30 minutes', '50 minutes', '90 minutes'], required: true }
+                ],
+                pricingFactors: { 
+                    sessionType: { 'Crisis Support': 1.5, 'Initial Consultation': 1.2, 'Follow-up Session': 1.0 },
+                    sessionLength: { '90 minutes': 1.7, '50 minutes': 1.0, '30 minutes': 0.7 }
+                }
+            },
+            lab: {
+                fields: [
+                    { name: 'testType', label: 'Type of Test', type: 'select', options: ['Blood Draw Only', 'Complete Blood Count', 'Metabolic Panel', 'Lipid Panel', 'Other Labs'], required: true },
+                    { name: 'fasting', label: 'Fasting Required?', type: 'select', options: ['Yes', 'No', 'Unsure'], required: true },
+                    { name: 'orderSource', label: 'Lab Order From', type: 'select', options: ['I have a lab order', 'Need physician order'], required: true },
+                    { name: 'specialRequirements', label: 'Special Requirements', type: 'textarea', required: false }
+                ],
+                pricingFactors: { 
+                    testType: { 'Other Labs': 1.3, 'Complete Blood Count': 1.2, 'Metabolic Panel': 1.2, 'Lipid Panel': 1.1, 'Blood Draw Only': 1.0 },
+                    orderSource: { 'Need physician order': 1.4, 'I have a lab order': 1.0 }
+                }
+            }
+        };
+
+        function calculatePrice(serviceId, formData) {
+            const service = services.find(s => s.id === serviceId);
+            const config = serviceFormConfigs[serviceId];
+            if (!service || !config) return service.basePrice;
+
+            let price = service.basePrice;
+            
+            for (const [field, value] of Object.entries(formData)) {
+                if (config.pricingFactors[field] && config.pricingFactors[field][value]) {
+                    price *= config.pricingFactors[field][value];
+                }
+            }
+
+            return Math.round(price);
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            app.innerHTML = getViewHTML();
+            attachEventListeners();
+        }
+
+        function getViewHTML() {
+            switch(state.currentView) {
+                case 'landing': return getLandingHTML();
+                case 'patient': return getPatientHTML();
+                case 'provider': return getProviderHTML();
+                case 'provider-onboarding': return getProviderOnboardingHTML();
+                case 'admin': return getAdminHTML();
+                case 'patient-ai': return getPatientAIHTML();
+                case 'patient-request': return getPatientRequestHTML();
+                case 'service-form': return getServiceFormHTML();
+                case 'price-confirmation': return getPriceConfirmationHTML();
+                default: return getLandingHTML();
+            }
+        }
+
+        function getLandingHTML() {
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+                    <div class="max-w-6xl w-full">
+                        <div class="text-center mb-12 fade-in">
+                            <h1 class="text-6xl font-bold text-indigo-600 mb-4">MedAngels</h1>
+                            <p class="text-2xl text-gray-600">On-Demand Medical Services</p>
+                            <p class="text-lg text-gray-500 mt-2">Like Uber, but for healthcare</p>
+                        </div>
+                        
+                        <div class="grid md:grid-cols-3 gap-6">
+                            <div class="bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition cursor-pointer fade-in" onclick="selectRole('patient')">
+                                <div class="text-6xl mb-4 text-center">👤</div>
+                                <h2 class="text-2xl font-bold text-center mb-3">Patient</h2>
+                                <p class="text-gray-600 text-center">Request medical services on-demand</p>
+                            </div>
+                            
+                            <div class="bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition cursor-pointer fade-in" onclick="selectRole('provider')" style="animation-delay: 0.1s">
+                                <div class="text-6xl mb-4 text-center">⚕️</div>
+                                <h2 class="text-2xl font-bold text-center mb-3">Provider</h2>
+                                <p class="text-gray-600 text-center">Accept requests and serve patients</p>
+                            </div>
+                            
+                            <div class="bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition cursor-pointer fade-in" onclick="selectRole('admin')" style="animation-delay: 0.2s">
+                                <div class="text-6xl mb-4 text-center">📊</div>
+                                <h2 class="text-2xl font-bold text-center mb-3">Admin</h2>
+                                <p class="text-gray-600 text-center">Manage platform and analytics</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getPatientHTML() {
+            const activeRequests = state.patientRequests.filter(r => r.status !== 'completed');
+            const completedRequests = state.patientRequests.filter(r => r.status === 'completed');
+
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <nav class="bg-white shadow-sm border-b">
+                        <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 class="text-2xl font-bold text-indigo-600">MedAngels Patient</h1>
+                            <button onclick="changeView('landing')" class="text-gray-600 hover:text-gray-800">← Back</button>
+                        </div>
+                    </nav>
+
+                    <div class="max-w-7xl mx-auto px-4 py-8">
+                        <div class="mb-8">
+                            <h2 class="text-3xl font-bold mb-6">Request Medical Service</h2>
+                            
+                            <div class="grid md:grid-cols-2 gap-6 mb-8">
+                                <div class="bg-white rounded-xl shadow-lg p-8 cursor-pointer hover:shadow-xl transition" onclick="changeView('patient-ai')">
+                                    <div class="text-5xl mb-4">💬</div>
+                                    <h3 class="text-xl font-bold mb-2">AI Assistant</h3>
+                                    <p class="text-gray-600">Describe your needs in natural language</p>
+                                </div>
+                                
+                                <div class="bg-white rounded-xl shadow-lg p-8 cursor-pointer hover:shadow-xl transition" onclick="changeView('patient-request')">
+                                    <div class="text-5xl mb-4">📋</div>
+                                    <h3 class="text-xl font-bold mb-2">Browse Services</h3>
+                                    <p class="text-gray-600">Select from service categories</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        ${activeRequests.length > 0 ? `
+                            <div class="mb-8">
+                                <h3 class="text-2xl font-bold mb-4">Active Requests</h3>
+                                <div class="space-y-4">
+                                    ${activeRequests.map(req => `
+                                        <div class="bg-white rounded-xl shadow p-6">
+                                            <div class="flex justify-between items-start">
+                                                <div class="flex-1">
+                                                    <h4 class="font-bold text-lg">${req.service}</h4>
+                                                    <p class="text-gray-600 mt-1">${req.description || 'Service request'}</p>
+                                                    ${req.status === 'matched' ? `
+                                                        <div class="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                                            <p class="text-yellow-800 font-semibold">🔍 Finding available provider...</p>
+                                                        </div>
+                                                    ` : ''}
+                                                    ${req.provider && req.status !== 'matched' ? `
+                                                        <div class="mt-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+                                                            <p class="text-green-800 font-semibold mb-2">✓ Provider Matched!</p>
+                                                            <div class="flex items-center gap-3 mb-2">
+                                                                <div class="w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xl">
+                                                                    ${req.provider.charAt(0)}
+                                                                </div>
+                                                                <div>
+                                                                    <p class="font-bold text-gray-900">${req.provider}</p>
+                                                                    <p class="text-sm text-gray-600">⭐ 4.9 • 342 services</p>
+                                                                </div>
+                                                            </div>
+                                                            ${req.scheduledTime ? `
+                                                                <p class="text-gray-700 mt-2">
+                                                                    <span class="font-semibold">📅 Scheduled:</span> ${req.scheduledTime}
+                                                                </p>
+                                                            ` : ''}
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                                <div class="text-right ml-4">
+                                                    <div class="text-2xl font-bold text-indigo-600">$${req.price}</div>
+                                                    <div class="mt-2">
+                                                        ${req.status === 'pending' ? '<span class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm">Pending</span>' : ''}
+                                                        ${req.status === 'matched' ? '<span class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm">Matching...</span>' : ''}
+                                                        ${req.status === 'accepted' ? '<span class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">Confirmed</span>' : ''}
+                                                        ${req.status === 'in-progress' ? '<span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">In Progress</span>' : ''}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        ${completedRequests.length > 0 ? `
+                            <div>
+                                <h3 class="text-2xl font-bold mb-4">Service History</h3>
+                                <div class="space-y-4">
+                                    ${completedRequests.map(req => `
+                                        <div class="bg-white rounded-xl shadow p-6 opacity-75">
+                                            <div class="flex justify-between items-start">
+                                                <div>
+                                                    <h4 class="font-bold text-lg">${req.service}</h4>
+                                                    <p class="text-gray-600">${req.provider} • ${req.scheduledTime}</p>
+                                                </div>
+                                                <div class="text-right">
+                                                    <div class="text-xl font-bold">$${req.price}</div>
+                                                    <div class="text-green-600 text-sm mt-1">✓ Completed</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function getPatientAIHTML() {
+            return `
+                <div class="min-h-screen bg-gray-50 flex flex-col">
+                    <nav class="bg-white shadow-sm border-b">
+                        <div class="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 class="text-2xl font-bold text-indigo-600">AI Medical Assistant</h1>
+                            <button onclick="changeView('patient')" class="text-gray-600 hover:text-gray-800">← Back</button>
+                        </div>
+                    </nav>
+
+                    <div class="flex-1 max-w-4xl w-full mx-auto px-4 py-8 flex flex-col">
+                        <div class="flex-1 bg-white rounded-xl shadow-lg flex flex-col" style="height: calc(100vh - 250px);">
+                            <div id="chatMessages" class="flex-1 p-6 overflow-y-auto">
+                                ${state.aiMessages.length === 0 ? `
+                                    <div class="flex items-center justify-center h-full">
+                                        <div class="text-center text-gray-500">
+                                            <div class="text-6xl mb-4">💬</div>
+                                            <p class="text-lg font-semibold">Describe what medical service you need</p>
+                                            <p class="text-sm mt-2 text-gray-400">Example: "I need a physical therapist for my back pain"</p>
+                                        </div>
+                                    </div>
+                                ` : state.aiMessages.map(msg => `
+                                    <div class="mb-4 ${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'}">
+                                        <div class="max-w-md ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-800'} rounded-2xl px-5 py-3">
+                                            ${msg.content}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+
+                            <div class="border-t p-4">
+                                <div class="flex gap-2">
+                                    <input 
+                                        type="text" 
+                                        id="aiInput" 
+                                        placeholder="Type your message..." 
+                                        class="flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                        onkeypress="if(event.key==='Enter') sendAIMessage()">
+                                    <button onclick="sendAIMessage()" class="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 transition font-semibold">
+                                        Send
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getPatientRequestHTML() {
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <nav class="bg-white shadow-sm border-b">
+                        <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 class="text-2xl font-bold text-indigo-600">Select Service</h1>
+                            <button onclick="changeView('patient')" class="text-gray-600 hover:text-gray-800">← Back</button>
+                        </div>
+                    </nav>
+
+                    <div class="max-w-7xl mx-auto px-4 py-8">
+                        <div class="grid md:grid-cols-3 gap-6">
+                            ${services.map(service => `
+                                <div class="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition cursor-pointer" onclick="selectService('${service.id}')">
+                                    <div class="text-5xl mb-4">${service.icon}</div>
+                                    <h3 class="text-xl font-bold mb-2">${service.name}</h3>
+                                    <div class="text-3xl font-bold text-indigo-600 mb-2">From $${service.basePrice}</div>
+                                    <p class="text-gray-600 text-sm">⏱️ ${service.time}</p>
+                                    <p class="text-gray-500 text-xs mt-2">*Final price based on your needs</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getServiceFormHTML() {
+            const service = services.find(s => s.id === state.selectedService);
+            const config = serviceFormConfigs[state.selectedService];
+            
+            if (!service || !config) return getPatientRequestHTML();
+
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <nav class="bg-white shadow-sm border-b">
+                        <div class="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <div>
+                                <h1 class="text-2xl font-bold text-indigo-600">${service.icon} ${service.name}</h1>
+                                <p class="text-gray-600 text-sm">Base price: $${service.basePrice} • ${service.time}</p>
+                            </div>
+                            <button onclick="backToServiceSelection()" class="text-gray-600 hover:text-gray-800">← Back</button>
+                        </div>
+                    </nav>
+
+                    <div class="max-w-4xl mx-auto px-4 py-8">
+                        <div class="bg-white rounded-xl shadow-lg p-8">
+                            <h2 class="text-xl font-bold mb-6">Tell us about your needs</h2>
+                            
+                            <form id="serviceForm" onsubmit="submitServiceForm(event)" class="space-y-6">
+                                ${config.fields.map(field => {
+                                    if (field.type === 'textarea') {
+                                        return `
+                                            <div>
+                                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                                    ${field.label} ${field.required ? '<span class="text-red-500">*</span>' : ''}
+                                                </label>
+                                                <textarea 
+                                                    name="${field.name}" 
+                                                    rows="3"
+                                                    ${field.required ? 'required' : ''}
+                                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                                    placeholder="Please provide details..."></textarea>
+                                            </div>
+                                        `;
+                                    } else if (field.type === 'select') {
+                                        return `
+                                            <div>
+                                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                                    ${field.label} ${field.required ? '<span class="text-red-500">*</span>' : ''}
+                                                </label>
+                                                <select 
+                                                    name="${field.name}" 
+                                                    ${field.required ? 'required' : ''}
+                                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                                    onchange="updatePriceEstimate()">
+                                                    <option value="">Select an option</option>
+                                                    ${field.options.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
+                                                </select>
+                                            </div>
+                                        `;
+                                    } else {
+                                        return `
+                                            <div>
+                                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                                    ${field.label} ${field.required ? '<span class="text-red-500">*</span>' : ''}
+                                                </label>
+                                                <input 
+                                                    type="text" 
+                                                    name="${field.name}" 
+                                                    ${field.required ? 'required' : ''}
+                                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                                    placeholder="Enter ${field.label.toLowerCase()}">
+                                            </div>
+                                        `;
+                                    }
+                                }).join('')}
+
+                                <div class="border-t pt-6 mt-6">
+                                    <div class="bg-indigo-50 rounded-lg p-6 mb-6">
+                                        <div class="flex justify-between items-center">
+                                            <div>
+                                                <p class="text-sm text-gray-600">Estimated Price</p>
+                                                <p class="text-4xl font-bold text-indigo-600" id="priceEstimate">$${service.basePrice}</p>
+                                                <p class="text-xs text-gray-500 mt-1">*Final price shown after form completion</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <button type="submit" class="w-full bg-indigo-600 text-white py-4 rounded-lg hover:bg-indigo-700 transition text-lg font-semibold">
+                                        Continue to Price Confirmation
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getPriceConfirmationHTML() {
+            const request = state.pendingRequest;
+            if (!request) return getPatientHTML();
+
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <nav class="bg-white shadow-sm border-b">
+                        <div class="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 class="text-2xl font-bold text-indigo-600">Confirm Your Request</h1>
+                            <button onclick="changeView('patient')" class="text-gray-600 hover:text-gray-800">← Cancel</button>
+                        </div>
+                    </nav>
+
+                    <div class="max-w-4xl mx-auto px-4 py-8">
+                        <div class="bg-white rounded-xl shadow-lg p-8">
+                            <div class="text-center mb-8">
+                                <div class="text-6xl mb-4">${request.icon}</div>
+                                <h2 class="text-3xl font-bold mb-2">${request.service}</h2>
+                                <p class="text-gray-600">${request.time}</p>
+                            </div>
+
+                            <div class="border-t border-b py-6 mb-6">
+                                <h3 class="font-bold mb-4">Request Details:</h3>
+                                <div class="space-y-3 text-sm">
+                                    ${Object.entries(request.formData).map(([key, value]) => `
+                                        <div class="flex justify-between">
+                                            <span class="text-gray-600">${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:</span>
+                                            <span class="font-semibold">${value}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+
+                            <div class="bg-green-50 rounded-lg p-6 mb-8">
+                                <div class="text-center">
+                                    <p class="text-gray-600 mb-2">Final Price</p>
+                                    <p class="text-5xl font-bold text-green-600 mb-2">$${request.price}</p>
+                                    <p class="text-sm text-gray-500">Price confirmed based on your needs</p>
+                                </div>
+                            </div>
+
+                            <div class="space-y-4">
+                                <button onclick="acceptRequest()" class="w-full bg-indigo-600 text-white py-4 rounded-lg hover:bg-indigo-700 transition text-lg font-semibold">
+                                    Accept & Find Provider
+                                </button>
+                                <button onclick="changeView('patient')" class="w-full bg-gray-200 text-gray-700 py-4 rounded-lg hover:bg-gray-300 transition">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getProviderOnboardingHTML() {
+            const step = state.onboardingStep;
+            
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100">
+                    <nav class="bg-white shadow-sm border-b">
+                        <div class="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 class="text-2xl font-bold text-indigo-600">Provider Registration</h1>
+                            <button onclick="changeView('landing')" class="text-gray-600 hover:text-gray-800">← Cancel</button>
+                        </div>
+                    </nav>
+
+                    <div class="max-w-4xl mx-auto px-4 py-8">
+                        <!-- Progress Bar -->
+                        <div class="mb-8">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-sm font-semibold ${step >= 1 ? 'text-indigo-600' : 'text-gray-400'}">1. Basic Info</span>
+                                <span class="text-sm font-semibold ${step >= 2 ? 'text-indigo-600' : 'text-gray-400'}">2. Services</span>
+                                <span class="text-sm font-semibold ${step >= 3 ? 'text-indigo-600' : 'text-gray-400'}">3. Compensation</span>
+                                <span class="text-sm font-semibold ${step >= 4 ? 'text-indigo-600' : 'text-gray-400'}">4. Review</span>
+                            </div>
+                            <div class="h-2 bg-gray-200 rounded-full">
+                                <div class="h-2 bg-indigo-600 rounded-full transition-all duration-300" style="width: ${(step / 4) * 100}%"></div>
+                            </div>
+                        </div>
+
+                        ${step === 1 ? getOnboardingStep1HTML() : ''}
+                        ${step === 2 ? getOnboardingStep2HTML() : ''}
+                        ${step === 3 ? getOnboardingStep3HTML() : ''}
+                        ${step === 4 ? getOnboardingStep4HTML() : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function getOnboardingStep1HTML() {
+            return `
+                <div class="bg-white rounded-xl shadow-lg p-8">
+                    <h2 class="text-2xl font-bold mb-2">Welcome to MedAngels!</h2>
+                    <p class="text-gray-600 mb-8">Let's get you set up to start helping patients.</p>
+
+                    <form id="onboardingForm1" onsubmit="submitOnboardingStep1(event)" class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Full Name <span class="text-red-500">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                name="fullName" 
+                                required
+                                value="${state.onboardingData.fullName || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="Dr. Jane Smith">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Professional Title <span class="text-red-500">*</span>
+                            </label>
+                            <select 
+                                name="title" 
+                                required
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                                <option value="">Select your title</option>
+                                <option value="MD" ${state.onboardingData.title === 'MD' ? 'selected' : ''}>Medical Doctor (MD)</option>
+                                <option value="DO" ${state.onboardingData.title === 'DO' ? 'selected' : ''}>Doctor of Osteopathic Medicine (DO)</option>
+                                <option value="RN" ${state.onboardingData.title === 'RN' ? 'selected' : ''}>Registered Nurse (RN)</option>
+                                <option value="NP" ${state.onboardingData.title === 'NP' ? 'selected' : ''}>Nurse Practitioner (NP)</option>
+                                <option value="PA" ${state.onboardingData.title === 'PA' ? 'selected' : ''}>Physician Assistant (PA)</option>
+                                <option value="PT" ${state.onboardingData.title === 'PT' ? 'selected' : ''}>Physical Therapist (PT)</option>
+                                <option value="DC" ${state.onboardingData.title === 'DC' ? 'selected' : ''}>Doctor of Chiropractic (DC)</option>
+                                <option value="LCSW" ${state.onboardingData.title === 'LCSW' ? 'selected' : ''}>Licensed Clinical Social Worker (LCSW)</option>
+                                <option value="PhD" ${state.onboardingData.title === 'PhD' ? 'selected' : ''}>Psychologist (PhD)</option>
+                                <option value="MLT" ${state.onboardingData.title === 'MLT' ? 'selected' : ''}>Medical Lab Technician (MLT)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                License Number <span class="text-red-500">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                name="licenseNumber" 
+                                required
+                                value="${state.onboardingData.licenseNumber || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="Enter your license number">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                State Licensed In <span class="text-red-500">*</span>
+                            </label>
+                            <select 
+                                name="state" 
+                                required
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                                <option value="">Select state</option>
+                                <option value="NC" ${state.onboardingData.state === 'NC' ? 'selected' : ''}>North Carolina</option>
+                                <option value="CA" ${state.onboardingData.state === 'CA' ? 'selected' : ''}>California</option>
+                                <option value="NY" ${state.onboardingData.state === 'NY' ? 'selected' : ''}>New York</option>
+                                <option value="TX" ${state.onboardingData.state === 'TX' ? 'selected' : ''}>Texas</option>
+                                <option value="FL" ${state.onboardingData.state === 'FL' ? 'selected' : ''}>Florida</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Years of Experience <span class="text-red-500">*</span>
+                            </label>
+                            <input 
+                                type="number" 
+                                name="experience" 
+                                required
+                                min="0"
+                                max="50"
+                                value="${state.onboardingData.experience || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="5">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Phone Number <span class="text-red-500">*</span>
+                            </label>
+                            <input 
+                                type="tel" 
+                                name="phone" 
+                                required
+                                value="${state.onboardingData.phone || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="(555) 123-4567">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Email Address <span class="text-red-500">*</span>
+                            </label>
+                            <input 
+                                type="email" 
+                                name="email" 
+                                required
+                                value="${state.onboardingData.email || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="doctor@example.com">
+                        </div>
+
+                        <button type="submit" class="w-full bg-indigo-600 text-white py-4 rounded-lg hover:bg-indigo-700 transition text-lg font-semibold">
+                            Continue to Services
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+
+        function getOnboardingStep2HTML() {
+            return `
+                <div class="bg-white rounded-xl shadow-lg p-8">
+                    <h2 class="text-2xl font-bold mb-2">Select Services You Provide</h2>
+                    <p class="text-gray-600 mb-8">Choose all the services you can offer to patients.</p>
+
+                    <form id="onboardingForm2" onsubmit="submitOnboardingStep2(event)" class="space-y-6">
+                        <div class="grid md:grid-cols-2 gap-4">
+                            ${services.map(service => `
+                                <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:border-indigo-600 transition ${state.onboardingData.services && state.onboardingData.services.includes(service.id) ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}">
+                                    <input 
+                                        type="checkbox" 
+                                        name="services" 
+                                        value="${service.id}"
+                                        ${state.onboardingData.services && state.onboardingData.services.includes(service.id) ? 'checked' : ''}
+                                        class="mt-1 mr-3 w-5 h-5 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-600">
+                                    <div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-2xl">${service.icon}</span>
+                                            <span class="font-semibold text-gray-900">${service.name}</span>
+                                        </div>
+                                        <p class="text-sm text-gray-500 mt-1">Base: $${service.basePrice} • ${service.time}</p>
+                                    </div>
+                                </label>
+                            `).join('')}
+                        </div>
+
+                        <div class="border-t pt-6">
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Service Area (ZIP Code) <span class="text-red-500">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                name="serviceZip" 
+                                required
+                                value="${state.onboardingData.serviceZip || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="28173">
+                            <p class="text-sm text-gray-500 mt-2">This is the primary area where you'll provide services.</p>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Travel Radius (miles) <span class="text-red-500">*</span>
+                            </label>
+                            <select 
+                                name="travelRadius" 
+                                required
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                                <option value="">Select radius</option>
+                                <option value="5" ${state.onboardingData.travelRadius === '5' ? 'selected' : ''}>5 miles</option>
+                                <option value="10" ${state.onboardingData.travelRadius === '10' ? 'selected' : ''}>10 miles</option>
+                                <option value="15" ${state.onboardingData.travelRadius === '15' ? 'selected' : ''}>15 miles</option>
+                                <option value="25" ${state.onboardingData.travelRadius === '25' ? 'selected' : ''}>25 miles</option>
+                                <option value="50" ${state.onboardingData.travelRadius === '50' ? 'selected' : ''}>50 miles</option>
+                            </select>
+                        </div>
+
+                        <div class="flex gap-4">
+                            <button type="button" onclick="goToOnboardingStep(1)" class="flex-1 bg-gray-200 text-gray-700 py-4 rounded-lg hover:bg-gray-300 transition">
+                                ← Back
+                            </button>
+                            <button type="submit" class="flex-1 bg-indigo-600 text-white py-4 rounded-lg hover:bg-indigo-700 transition text-lg font-semibold">
+                                Continue to Compensation
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+        }
+
+        function getOnboardingStep3HTML() {
+            return `
+                <div class="bg-white rounded-xl shadow-lg p-8">
+                    <h2 class="text-2xl font-bold mb-2">Compensation & Giving</h2>
+                    <p class="text-gray-600 mb-8">Choose how you'd like to structure your earnings.</p>
+
+                    <form id="onboardingForm3" onsubmit="submitOnboardingStep3(event)" class="space-y-6">
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+                            <h3 class="font-bold text-lg mb-3 text-blue-900">💡 Compensation Options</h3>
+                            <p class="text-sm text-blue-800 mb-4">You can choose to keep your earnings, donate your time completely, or donate proceeds to charity while covering your costs.</p>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-4">
+                                How would you like to structure your compensation? <span class="text-red-500">*</span>
+                            </label>
+                            
+                            <div class="space-y-3">
+                                <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:border-indigo-600 transition ${state.onboardingData.compensationType === 'keep' ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}">
+                                    <input 
+                                        type="radio" 
+                                        name="compensationType" 
+                                        value="keep"
+                                        ${state.onboardingData.compensationType === 'keep' ? 'checked' : ''}
+                                        onchange="updateCompensationForm()"
+                                        class="mt-1 mr-3 w-5 h-5 text-indigo-600 focus:ring-2 focus:ring-indigo-600">
+                                    <div class="flex-1">
+                                        <div class="font-semibold text-gray-900">💰 Keep Earnings</div>
+                                        <p class="text-sm text-gray-600 mt-1">Receive full payment for your services</p>
+                                    </div>
+                                </label>
+
+                                <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:border-green-600 transition ${state.onboardingData.compensationType === 'donate-time' ? 'border-green-600 bg-green-50' : 'border-gray-200'}">
+                                    <input 
+                                        type="radio" 
+                                        name="compensationType" 
+                                        value="donate-time"
+                                        ${state.onboardingData.compensationType === 'donate-time' ? 'checked' : ''}
+                                        onchange="updateCompensationForm()"
+                                        class="mt-1 mr-3 w-5 h-5 text-green-600 focus:ring-2 focus:ring-green-600">
+                                    <div class="flex-1">
+                                        <div class="font-semibold text-gray-900">🎁 Donate Time (Pro Bono)</div>
+                                        <p class="text-sm text-gray-600 mt-1">Provide services for free to those in need</p>
+                                        <div class="mt-2 px-3 py-1 bg-green-100 text-green-800 text-xs rounded-full inline-block">
+                                            ⭐ Verified Volunteer Badge
+                                        </div>
+                                    </div>
+                                </label>
+
+                                <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:border-purple-600 transition ${state.onboardingData.compensationType === 'donate-proceeds' ? 'border-purple-600 bg-purple-50' : 'border-gray-200'}">
+                                    <input 
+                                        type="radio" 
+                                        name="compensationType" 
+                                        value="donate-proceeds"
+                                        ${state.onboardingData.compensationType === 'donate-proceeds' ? 'checked' : ''}
+                                        onchange="updateCompensationForm()"
+                                        class="mt-1 mr-3 w-5 h-5 text-purple-600 focus:ring-2 focus:ring-purple-600">
+                                    <div class="flex-1">
+                                        <div class="font-semibold text-gray-900">❤️ Donate Proceeds to Charity</div>
+                                        <p class="text-sm text-gray-600 mt-1">Patients pay, but all proceeds go to your chosen charity</p>
+                                        <div class="mt-2 px-3 py-1 bg-purple-100 text-purple-800 text-xs rounded-full inline-block">
+                                            ⭐ Charitable Provider Badge
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="charitySelection" class="hidden">
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Select Charity <span class="text-red-500">*</span>
+                            </label>
+                            <select 
+                                name="charity" 
+                                id="charityDropdown"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                                <option value="">Choose a registered charity</option>
+                                ${registeredCharities.map(charity => `
+                                    <option value="${charity.id}" ${state.onboardingData.charity === charity.id ? 'selected' : ''}>
+                                        ${charity.name}
+                                    </option>
+                                `).join('')}
+                            </select>
+                            <p class="text-sm text-gray-500 mt-2">100% of proceeds will be donated to this organization</p>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-6">
+                            <h4 class="font-semibold mb-3">📋 What happens next:</h4>
+                            <ul class="space-y-2 text-sm text-gray-700">
+                                <li class="flex items-start">
+                                    <span class="mr-2">•</span>
+                                    <span>Your profile will display your compensation choice</span>
+                                </li>
+                                <li class="flex items-start">
+                                    <span class="mr-2">•</span>
+                                    <span>Patients can filter providers by donation status</span>
+                                </li>
+                                <li class="flex items-start">
+                                    <span class="mr-2">•</span>
+                                    <span>Tax receipts will be provided for charitable donations</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div class="flex gap-4">
+                            <button type="button" onclick="goToOnboardingStep(2)" class="flex-1 bg-gray-200 text-gray-700 py-4 rounded-lg hover:bg-gray-300 transition">
+                                ← Back
+                            </button>
+                            <button type="submit" class="flex-1 bg-indigo-600 text-white py-4 rounded-lg hover:bg-indigo-700 transition text-lg font-semibold">
+                                Continue to Review
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+        }
+
+        function getOnboardingStep4HTML() {
+            const data = state.onboardingData;
+            const selectedServices = services.filter(s => data.services && data.services.includes(s.id));
+            const selectedCharity = registeredCharities.find(c => c.id === data.charity);
+
+            return `
+                <div class="bg-white rounded-xl shadow-lg p-8">
+                    <h2 class="text-2xl font-bold mb-2">Review Your Information</h2>
+                    <p class="text-gray-600 mb-8">Please review your details before completing registration.</p>
+
+                    <div class="space-y-6">
+                        <!-- Basic Info -->
+                        <div class="border rounded-lg p-6">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="font-bold text-lg">Basic Information</h3>
+                                <button onclick="goToOnboardingStep(1)" class="text-indigo-600 hover:text-indigo-700 text-sm font-semibold">
+                                    Edit
+                                </button>
+                            </div>
+                            <div class="grid md:grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <span class="text-gray-600">Name:</span>
+                                    <span class="font-semibold ml-2">${data.fullName}</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">Title:</span>
+                                    <span class="font-semibold ml-2">${data.title}</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">License:</span>
+                                    <span class="font-semibold ml-2">${data.licenseNumber}</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">State:</span>
+                                    <span class="font-semibold ml-2">${data.state}</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">Experience:</span>
+                                    <span class="font-semibold ml-2">${data.experience} years</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">Phone:</span>
+                                    <span class="font-semibold ml-2">${data.phone}</span>
+                                </div>
+                                <div class="md:col-span-2">
+                                    <span class="text-gray-600">Email:</span>
+                                    <span class="font-semibold ml-2">${data.email}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Services -->
+                        <div class="border rounded-lg p-6">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="font-bold text-lg">Services Offered</h3>
+                                <button onclick="goToOnboardingStep(2)" class="text-indigo-600 hover:text-indigo-700 text-sm font-semibold">
+                                    Edit
+                                </button>
+                            </div>
+                            <div class="grid md:grid-cols-2 gap-3">
+                                ${selectedServices.map(service => `
+                                    <div class="flex items-center gap-2 bg-indigo-50 px-3 py-2 rounded">
+                                        <span class="text-xl">${service.icon}</span>
+                                        <span class="font-semibold text-sm">${service.name}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div class="mt-4 text-sm">
+                                <span class="text-gray-600">Service Area:</span>
+                                <span class="font-semibold ml-2">${data.serviceZip} (${data.travelRadius} mile radius)</span>
+                            </div>
+                        </div>
+
+                        <!-- Compensation -->
+                        <div class="border rounded-lg p-6">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="font-bold text-lg">Compensation Structure</h3>
+                                <button onclick="goToOnboardingStep(3)" class="text-indigo-600 hover:text-indigo-700 text-sm font-semibold">
+                                    Edit
+                                </button>
+                            </div>
+                            ${data.compensationType === 'keep' ? `
+                                <div class="flex items-center gap-3 bg-blue-50 px-4 py-3 rounded-lg">
+                                    <span class="text-2xl">💰</span>
+                                    <div>
+                                        <div class="font-semibold">Keep Earnings</div>
+                                        <p class="text-sm text-gray-600">Receiving full payment for services</p>
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${data.compensationType === 'donate-time' ? `
+                                <div class="flex items-center gap-3 bg-green-50 px-4 py-3 rounded-lg">
+                                    <span class="text-2xl">🎁</span>
+                                    <div>
+                                        <div class="font-semibold">Donating Time (Pro Bono)</div>
+                                        <p class="text-sm text-gray-600">Providing free services to those in need</p>
+                                        <div class="mt-2 px-3 py-1 bg-green-100 text-green-800 text-xs rounded-full inline-block">
+                                            ⭐ Verified Volunteer Badge
+                                        </div>
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${data.compensationType === 'donate-proceeds' ? `
+                                <div class="flex items-center gap-3 bg-purple-50 px-4 py-3 rounded-lg">
+                                    <span class="text-2xl">❤️</span>
+                                    <div class="flex-1">
+                                        <div class="font-semibold">Donating Proceeds to Charity</div>
+                                        <p class="text-sm text-gray-600">All proceeds donated to: <span class="font-semibold">${selectedCharity ? selectedCharity.name : 'Selected Charity'}</span></p>
+                                        <div class="mt-2 px-3 py-1 bg-purple-100 text-purple-800 text-xs rounded-full inline-block">
+                                            ⭐ Charitable Provider Badge
+                                        </div>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-6">
+                            <div class="flex items-start gap-3">
+                                <span class="text-3xl">✅</span>
+                                <div>
+                                    <h4 class="font-bold text-green-900 mb-2">Ready to Launch!</h4>
+                                    <p class="text-sm text-green-800">By completing registration, you agree to MedAngels's Terms of Service and Provider Agreement.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-4">
+                            <button onclick="goToOnboardingStep(3)" class="flex-1 bg-gray-200 text-gray-700 py-4 rounded-lg hover:bg-gray-300 transition">
+                                ← Back
+                            </button>
+                            <button onclick="completeOnboarding()" class="flex-1 bg-green-600 text-white py-4 rounded-lg hover:bg-green-700 transition text-lg font-semibold">
+                                Complete Registration 🎉
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getProviderHTML() {
+            const provider = state.currentProvider || state.providers[0];
+            const pendingRequests = state.providerRequests.filter(r => r.status === 'pending');
+            const acceptedRequests = state.providerRequests.filter(r => r.status === 'accepted' || r.status === 'in-progress');
+            const completedToday = state.providerRequests.filter(r => r.status === 'completed').length;
+            const earningsToday = state.providerRequests.filter(r => r.status === 'completed').reduce((sum, r) => sum + r.price, 0);
+
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <nav class="bg-white shadow-sm border-b">
+                        <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <div>
+                                <h1 class="text-2xl font-bold text-indigo-600">${provider.name}</h1>
+                                <p class="text-gray-600">${provider.specialty}</p>
+                            </div>
+                            <button onclick="changeView('landing')" class="text-gray-600 hover:text-gray-800">← Back</button>
+                        </div>
+                    </nav>
+
+                    <div class="max-w-7xl mx-auto px-4 py-8">
+                        <div class="grid md:grid-cols-3 gap-6 mb-8">
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <p class="text-gray-600 mb-2">Availability</p>
+                                        <p class="text-2xl font-bold ${provider.available ? 'text-green-600' : 'text-gray-400'}">
+                                            ${provider.available ? 'Online' : 'Offline'}
+                                        </p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" ${provider.available ? 'checked' : ''} class="sr-only peer" onchange="toggleAvailability()">
+                                        <div class="w-14 h-7 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-green-600"></div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <p class="text-gray-600 mb-2">Today's Earnings</p>
+                                <p class="text-3xl font-bold text-indigo-600">$${earningsToday}</p>
+                                <p class="text-sm text-gray-500 mt-1">${completedToday} services completed</p>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <p class="text-gray-600 mb-2">Rating</p>
+                                <p class="text-3xl font-bold">⭐ ${provider.rating}</p>
+                                <p class="text-sm text-gray-500 mt-1">${provider.completed} total services</p>
+                            </div>
+                        </div>
+
+                        ${pendingRequests.length > 0 ? `
+                            <div class="mb-8">
+                                <h3 class="text-2xl font-bold mb-4">New Requests ${pendingRequests.length > 0 ? '<span class="pulse-dot">🔔</span>' : ''}</h3>
+                                <div class="space-y-4">
+                                    ${pendingRequests.map(req => `
+                                        <div class="bg-white rounded-xl shadow-lg p-6 border-2 border-indigo-200">
+                                            <div class="flex justify-between items-start mb-4">
+                                                <div class="flex-1">
+                                                    <div class="flex items-center gap-3 mb-3">
+                                                        <span class="text-4xl">${req.icon || '🩺'}</span>
+                                                        <div>
+                                                            <h4 class="font-bold text-xl">${req.service}</h4>
+                                                            <p class="text-sm text-gray-500">⏱️ ${req.time}</p>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div class="bg-gray-50 rounded-lg p-4 mb-3">
+                                                        <p class="text-sm font-semibold text-gray-700 mb-2">Patient Details:</p>
+                                                        ${req.description ? `<p class="text-sm text-gray-600 mb-2">${req.description}</p>` : ''}
+                                                        ${req.formData ? Object.entries(req.formData).map(([key, value]) => `
+                                                            <div class="text-sm text-gray-600 py-1">
+                                                                <span class="font-medium">${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:</span> ${value}
+                                                            </div>
+                                                        `).join('') : ''}
+                                                    </div>
+                                                    
+                                                    <p class="text-sm text-gray-500">📍 5 miles away • Requested ${new Date(req.createdAt).toLocaleTimeString()}</p>
+                                                </div>
+                                                <div class="text-right ml-4">
+                                                    <div class="text-3xl font-bold text-indigo-600">$${req.price}</div>
+                                                </div>
+                                            </div>
+                                            <div class="flex gap-3">
+                                                <button onclick="acceptProviderRequest(${req.id})" class="flex-1 bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition font-bold">
+                                                    Accept
+                                                </button>
+                                                <button onclick="declineRequest(${req.id})" class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 transition">
+                                                    Decline
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        ${acceptedRequests.length > 0 ? `
+                            <div class="mb-8">
+                                <h3 class="text-2xl font-bold mb-4">Upcoming Appointments</h3>
+                                <div class="space-y-4">
+                                    ${acceptedRequests.map(req => `
+                                        <div class="bg-white rounded-xl shadow p-6">
+                                            <div class="flex justify-between items-start">
+                                                <div>
+                                                    <h4 class="font-bold text-lg">${req.service}</h4>
+                                                    <p class="text-gray-600">${req.description}</p>
+                                                    <p class="text-indigo-600 mt-2 font-semibold">${req.scheduledTime}</p>
+                                                </div>
+                                                <div class="text-right">
+                                                    <div class="text-2xl font-bold text-indigo-600">$${req.price}</div>
+                                                    ${req.status === 'accepted' ? `
+                                                        <button onclick="startService(${req.id})" class="mt-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
+                                                            Start Service
+                                                        </button>
+                                                    ` : ''}
+                                                    ${req.status === 'in-progress' ? `
+                                                        <button onclick="completeService(${req.id})" class="mt-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 text-sm">
+                                                            Complete
+                                                        </button>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        ${pendingRequests.length === 0 && acceptedRequests.length === 0 ? `
+                            <div class="text-center py-20">
+                                <div class="text-6xl mb-4">📱</div>
+                                <p class="text-xl text-gray-600">No active requests</p>
+                                <p class="text-gray-500 mt-2">New requests will appear here when available</p>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function getAdminHTML() {
+            const totalRequests = state.patientRequests.length;
+            const activeRequests = state.patientRequests.filter(r => r.status !== 'completed').length;
+            const totalRevenue = state.patientRequests.filter(r => r.status === 'completed').reduce((sum, r) => sum + r.price, 0);
+            const activeProviders = state.providers.filter(p => p.available).length;
+
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <nav class="bg-white shadow-sm border-b">
+                        <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 class="text-2xl font-bold text-indigo-600">Admin Dashboard</h1>
+                            <button onclick="changeView('landing')" class="text-gray-600 hover:text-gray-800">← Back</button>
+                        </div>
+                    </nav>
+
+                    <div class="max-w-7xl mx-auto px-4 py-8">
+                        <div class="grid md:grid-cols-4 gap-6 mb-8">
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <p class="text-gray-600 mb-2">Total Requests</p>
+                                <p class="text-4xl font-bold text-indigo-600">${totalRequests}</p>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <p class="text-gray-600 mb-2">Active Requests</p>
+                                <p class="text-4xl font-bold text-green-600">${activeRequests}</p>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <p class="text-gray-600 mb-2">Active Providers</p>
+                                <p class="text-4xl font-bold text-blue-600">${activeProviders}/${state.providers.length}</p>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <p class="text-gray-600 mb-2">Total Revenue</p>
+                                <p class="text-4xl font-bold text-purple-600">$${totalRevenue}</p>
+                            </div>
+                        </div>
+
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <h3 class="text-xl font-bold mb-4">All Requests</h3>
+                                <div class="space-y-3 max-h-96 overflow-y-auto">
+                                    ${state.patientRequests.length > 0 ? state.patientRequests.map(req => `
+                                        <div class="border rounded-lg p-3">
+                                            <div class="flex justify-between items-start">
+                                                <div class="flex-1">
+                                                    <p class="font-semibold">${req.service}</p>
+                                                    <p class="text-sm text-gray-600">${req.description}</p>
+                                                    ${req.provider ? `<p class="text-sm text-indigo-600 mt-1">${req.provider}</p>` : ''}
+                                                </div>
+                                                <div class="text-right ml-4">
+                                                    <p class="font-bold">$${req.price}</p>
+                                                    <span class="text-xs px-2 py-1 rounded-full ${
+                                                        req.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                                        req.status === 'accepted' ? 'bg-green-100 text-green-800' :
+                                                        req.status === 'in-progress' ? 'bg-blue-100 text-blue-800' :
+                                                        'bg-gray-100 text-gray-800'
+                                                    }">${req.status}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('') : '<p class="text-gray-500 text-center py-8">No requests yet</p>'}
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <h3 class="text-xl font-bold mb-4">Provider Status</h3>
+                                <div class="space-y-3">
+                                    ${state.providers.map(provider => `
+                                        <div class="border rounded-lg p-4">
+                                            <div class="flex justify-between items-center">
+                                                <div>
+                                                    <p class="font-semibold">${provider.name}</p>
+                                                    <p class="text-sm text-gray-600">${provider.specialty}</p>
+                                                </div>
+                                                <div class="text-right">
+                                                    <span class="px-3 py-1 rounded-full text-sm ${provider.available ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                                                        ${provider.available ? 'Online' : 'Offline'}
+                                                    </span>
+                                                    <p class="text-xs text-gray-500 mt-1">⭐ ${provider.rating} (${provider.completed})</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function selectRole(role) {
+            state.currentRole = role;
+            if (role === 'provider') {
+                showProviderLoginModal();
+            } else {
+                changeView(role);
+            }
+        }
+
+        function showProviderLoginModal() {
+            const choice = confirm('Are you a new provider?\n\nClick OK to register as new provider\nClick Cancel to login as existing provider');
+            if (choice) {
+                startProviderOnboarding();
+            } else {
+                state.currentProvider = state.providers[0];
+                changeView('provider');
+            }
+        }
+
+        function startProviderOnboarding() {
+            state.currentRole = 'provider';
+            state.currentProvider = null;
+            state.onboardingData = {};
+            state.onboardingStep = 1;
+            changeView('provider-onboarding');
+        }
+
+        function changeView(view) {
+            state.currentView = view;
+            render();
+        }
+
+        function toggleAvailability() {
+            if (state.currentProvider) {
+                state.currentProvider.available = !state.currentProvider.available;
+                const provider = state.providers.find(p => p.id === state.currentProvider.id);
+                if (provider) provider.available = state.currentProvider.available;
+            }
+            render();
+        }
+
+        function selectService(serviceId) {
+            state.selectedService = serviceId;
+            changeView('service-form');
+        }
+
+        function backToServiceSelection() {
+            state.selectedService = null;
+            changeView('patient-request');
+        }
+
+        function updatePriceEstimate() {
+            const form = document.getElementById('serviceForm');
+            if (!form) return;
+
+            const formData = new FormData(form);
+            const data = {};
+            for (let [key, value] of formData.entries()) {
+                if (value) data[key] = value;
+            }
+
+            const price = calculatePrice(state.selectedService, data);
+            const priceElement = document.getElementById('priceEstimate');
+            if (priceElement) {
+                priceElement.textContent = `$${price}`;
+            }
+        }
+
+        function submitServiceForm(event) {
+            event.preventDefault();
+            
+            const form = event.target;
+            const formData = new FormData(form);
+            const data = {};
+            for (let [key, value] of formData.entries()) {
+                data[key] = value;
+            }
+
+            const service = services.find(s => s.id === state.selectedService);
+            const price = calculatePrice(state.selectedService, data);
+
+            state.pendingRequest = {
+                id: state.requestCounter++,
+                service: service.name,
+                icon: service.icon,
+                time: service.time,
+                formData: data,
+                price: price,
+                status: 'pending',
+                createdAt: new Date().toISOString()
+            };
+
+            changeView('price-confirmation');
+        }
+
+        function acceptRequest() {
+            if (!state.pendingRequest) return;
+
+            const request = {
+                ...state.pendingRequest,
+                status: 'pending'
+            };
+
+            state.patientRequests.push(request);
+            state.providerRequests.push({...request});
+            state.pendingRequest = null;
+
+            // Simulate provider matching
+            setTimeout(() => {
+                matchProviderToRequest(request.id);
+            }, 2000);
+
+            changeView('patient');
+        }
+
+        function matchProviderToRequest(requestId) {
+            const availableProviders = state.providers.filter(p => p.available);
+            if (availableProviders.length === 0) return;
+
+            const provider = availableProviders[0];
+            const request = state.patientRequests.find(r => r.id === requestId);
+            const providerRequest = state.providerRequests.find(r => r.id === requestId);
+
+            if (request && providerRequest) {
+                // Simulate provider acceptance
+                setTimeout(() => {
+                    request.status = 'matched';
+                    providerRequest.status = 'pending';
+                    render();
+                }, 1500);
+            }
+        }
+
+        function createRequestFromAI(serviceId, formData, description) {
+            const service = services.find(s => s.id === serviceId);
+            const price = calculatePrice(serviceId, formData);
+
+            const request = {
+                id: state.requestCounter++,
+                service: service.name,
+                icon: service.icon,
+                time: service.time,
+                formData: formData,
+                description: description,
+                price: price,
+                status: 'pending',
+                createdAt: new Date().toISOString()
+            };
+
+            state.patientRequests.push(request);
+            state.providerRequests.push({...request});
+
+            // Simulate provider matching
+            setTimeout(() => {
+                matchProviderToRequest(request.id);
+            }, 2000);
+
+            changeView('patient');
+        }
+
+        function acceptProviderRequest(requestId) {
+            const request = state.providerRequests.find(r => r.id === requestId);
+            if (!request) return;
+
+            request.status = 'accepted';
+            request.provider = state.currentProvider ? state.currentProvider.name : 'Provider';
+            
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(10, 0, 0, 0);
+            request.scheduledTime = tomorrow.toLocaleString('en-US', { 
+                weekday: 'short', 
+                month: 'short', 
+                day: 'numeric', 
+                hour: 'numeric', 
+                minute: '2-digit'
+            });
+
+            const patientRequest = state.patientRequests.find(r => r.id === requestId);
+            if (patientRequest) {
+                patientRequest.status = 'accepted';
+                patientRequest.provider = request.provider;
+                patientRequest.scheduledTime = request.scheduledTime;
+            }
+
+            render();
+        }
+
+        function declineRequest(requestId) {
+            const index = state.providerRequests.findIndex(r => r.id === requestId);
+            if (index > -1) {
+                state.providerRequests.splice(index, 1);
+            }
+            render();
+        }
+
+        function startService(requestId) {
+            const request = state.providerRequests.find(r => r.id === requestId);
+            if (request) {
+                request.status = 'in-progress';
+                const patientRequest = state.patientRequests.find(r => r.id === requestId);
+                if (patientRequest) patientRequest.status = 'in-progress';
+            }
+            render();
+        }
+
+        function completeService(requestId) {
+            const request = state.providerRequests.find(r => r.id === requestId);
+            if (request) {
+                request.status = 'completed';
+                const patientRequest = state.patientRequests.find(r => r.id === requestId);
+                if (patientRequest) patientRequest.status = 'completed';
+            }
+            render();
+        }
+
+        async function sendAIMessage() {
+            const input = document.getElementById('aiInput');
+            const message = input.value.trim();
+            if (!message) return;
+
+            state.aiMessages.push({ role: 'user', content: message });
+            input.value = '';
+            render();
+
+            // Scroll to bottom
+            setTimeout(() => {
+                const chatMessages = document.getElementById('chatMessages');
+                if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+            }, 100);
+
+            // Simulate AI processing
+            setTimeout(() => {
+                const response = processAIConversation(message);
+                state.aiMessages.push({ role: 'assistant', content: response.message });
+                
+                if (response.newState) {
+                    state.aiState = response.newState;
+                }
+                if (response.context) {
+                    state.aiContext = { ...state.aiContext, ...response.context };
+                }
+
+                render();
+
+                // Scroll to bottom again after AI response
+                setTimeout(() => {
+                    const chatMessages = document.getElementById('chatMessages');
+                    if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+                }, 100);
+
+                // If ready to create request, show confirmation
+                if (response.ready && state.aiContext.serviceId) {
+                    setTimeout(() => {
+                        showAIRequestConfirmation();
+                    }, 1000);
+                }
+            }, 800);
+        }
+
+        function processAIConversation(message) {
+            const lower = message.toLowerCase();
+
+            // Initial state - identify service type
+            if (state.aiState === 'initial') {
+                let serviceId = null;
+                let serviceName = '';
+
+                if (lower.includes('physical') || lower.includes('therapy') || lower.includes('back') || lower.includes('knee') || lower.includes('pain')) {
+                    serviceId = 'physical';
+                    serviceName = 'Physical Therapy';
+                } else if (lower.includes('urgent') || lower.includes('emergency') || lower.includes('immediate')) {
+                    serviceId = 'urgent';
+                    serviceName = 'Urgent Care';
+                } else if (lower.includes('nurse') || lower.includes('injection') || lower.includes('wound') || lower.includes('iv')) {
+                    serviceId = 'nurse';
+                    serviceName = 'Nursing Visit';
+                } else if (lower.includes('blood') || lower.includes('lab') || lower.includes('test')) {
+                    serviceId = 'lab';
+                    serviceName = 'Lab/Blood Draw';
+                } else if (lower.includes('mental') || lower.includes('therapy') || lower.includes('counseling') || lower.includes('anxiety') || lower.includes('depression')) {
+                    serviceId = 'mental';
+                    serviceName = 'Mental Health';
+                } else if (lower.includes('chiro') || lower.includes('spine') || lower.includes('adjustment')) {
+                    serviceId = 'chiro';
+                    serviceName = 'Chiropractor';
+                } else {
+                    serviceId = 'primary';
+                    serviceName = 'Primary Care';
+                }
+
+                state.aiContext = { 
+                    serviceId, 
+                    serviceName,
+                    userInput: message,
+                    formData: {}
+                };
+
+                // Ask first clarifying question based on service
+                const config = serviceFormConfigs[serviceId];
+                const firstField = config.fields[0];
+                
+                return {
+                    message: `I understand you need ${serviceName}. To give you an accurate price, I need to ask a few questions.\n\n${firstField.label}${firstField.type === 'select' ? '\n\nOptions: ' + firstField.options.join(', ') : ''}`,
+                    newState: 'gathering',
+                    context: { currentFieldIndex: 0 }
+                };
+            }
+
+            // Gathering information state
+            if (state.aiState === 'gathering') {
+                const config = serviceFormConfigs[state.aiContext.serviceId];
+                const currentField = config.fields[state.aiContext.currentFieldIndex];
+                
+                // Store the answer
+                state.aiContext.formData[currentField.name] = message;
+
+                const nextIndex = state.aiContext.currentFieldIndex + 1;
+
+                // Check if we have more questions
+                if (nextIndex < config.fields.length) {
+                    const nextField = config.fields[nextIndex];
+                    return {
+                        message: `Got it. Next question:\n\n${nextField.label}${nextField.type === 'select' ? '\n\nOptions: ' + nextField.options.join(', ') : ''}`,
+                        context: { currentFieldIndex: nextIndex }
+                    };
+                } else {
+                    // All questions answered, calculate price
+                    const price = calculatePrice(state.aiContext.serviceId, state.aiContext.formData);
+                    state.aiContext.price = price;
+                    const service = services.find(s => s.id === state.aiContext.serviceId);
+
+                    return {
+                        message: `Perfect! Based on your needs, I've calculated the price for ${state.aiContext.serviceName}:\n\n💰 Final Price: $${price}\n⏱️ Duration: ${service.time}\n\nWould you like to proceed with this request?`,
+                        newState: 'confirming',
+                        ready: true
+                    };
+                }
+            }
+
+            // Default response
+            return {
+                message: "I'm here to help you find the right medical service. Could you describe what you need?"
+            };
+        }
+
+        function showAIRequestConfirmation() {
+            const userConfirmed = confirm(
+                `Ready to request ${state.aiContext.serviceName} for $${state.aiContext.price}?\n\nClick OK to find an available provider.`
+            );
+
+            if (userConfirmed) {
+                createRequestFromAI(
+                    state.aiContext.serviceId,
+                    state.aiContext.formData,
+                    state.aiContext.userInput
+                );
+                
+                // Reset AI state
+                state.aiMessages = [];
+                state.aiContext = {};
+                state.aiState = 'initial';
+            }
+        }
+
+        function submitOnboardingStep1(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            
+            for (let [key, value] of formData.entries()) {
+                state.onboardingData[key] = value;
+            }
+            
+            state.onboardingStep = 2;
+            render();
+        }
+
+        function submitOnboardingStep2(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            
+            // Get all checked services
+            const services = [];
+            for (let [key, value] of formData.entries()) {
+                if (key === 'services') {
+                    services.push(value);
+                } else {
+                    state.onboardingData[key] = value;
+                }
+            }
+            
+            if (services.length === 0) {
+                alert('Please select at least one service');
+                return;
+            }
+            
+            state.onboardingData.services = services;
+            state.onboardingStep = 3;
+            render();
+        }
+
+        function submitOnboardingStep3(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            
+            const compensationType = formData.get('compensationType');
+            if (!compensationType) {
+                alert('Please select a compensation type');
+                return;
+            }
+            
+            state.onboardingData.compensationType = compensationType;
+            
+            if (compensationType === 'donate-proceeds') {
+                const charity = formData.get('charity');
+                if (!charity) {
+                    alert('Please select a charity');
+                    return;
+                }
+                state.onboardingData.charity = charity;
+            }
+            
+            state.onboardingStep = 4;
+            render();
+        }
+
+        function goToOnboardingStep(step) {
+            state.onboardingStep = step;
+            render();
+        }
+
+        function updateCompensationForm() {
+            const charitySelection = document.getElementById('charitySelection');
+            const charityDropdown = document.getElementById('charityDropdown');
+            const compensationType = document.querySelector('input[name="compensationType"]:checked');
+            
+            if (compensationType && compensationType.value === 'donate-proceeds') {
+                charitySelection.classList.remove('hidden');
+                charityDropdown.required = true;
+            } else {
+                charitySelection.classList.add('hidden');
+                charityDropdown.required = false;
+            }
+        }
+
+        function completeOnboarding() {
+            // Create new provider from onboarding data
+            const data = state.onboardingData;
+            const newProvider = {
+                id: state.providers.length + 1,
+                name: data.fullName,
+                title: data.title,
+                specialty: services.find(s => data.services.includes(s.id))?.name || 'Medical Professional',
+                available: false,
+                rating: 5.0,
+                completed: 0,
+                licenseNumber: data.licenseNumber,
+                state: data.state,
+                experience: data.experience,
+                phone: data.phone,
+                email: data.email,
+                services: data.services,
+                serviceZip: data.serviceZip,
+                travelRadius: data.travelRadius,
+                compensationType: data.compensationType,
+                charity: data.charity,
+                onboarded: true
+            };
+            
+            state.providers.push(newProvider);
+            state.currentProvider = newProvider;
+            
+            // Reset onboarding state
+            state.onboardingData = {};
+            state.onboardingStep = 1;
+            
+            // Show success message
+            alert('🎉 Registration complete! Welcome to MedAngels, ' + newProvider.name + '!');
+            
+            // Navigate to provider portal
+            changeView('provider');
+        }
+
+        function attachEventListeners() {
+            // Event listeners are attached via onclick in HTML
+        }
+
+        // Initial render
+        render();
+    </script>
+</body>
+</html>
