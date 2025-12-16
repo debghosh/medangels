@@ -26,12 +26,16 @@
             patientRequests: [],
             providerRequests: [],
             providers: [
-                { id: 1, name: 'Dr. Sarah Chen', specialty: 'Primary Care', available: true, rating: 4.9, completed: 342 },
-                { id: 2, name: 'Dr. Michael Torres', specialty: 'Urgent Care', available: false, rating: 4.8, completed: 256 },
-                { id: 3, name: 'Emily Rodriguez RN', specialty: 'Nursing', available: true, rating: 4.9, completed: 428 },
-                { id: 4, name: 'Dr. James Kim', specialty: 'Physical Therapy', available: true, rating: 4.7, completed: 198 },
+                { id: 1, name: 'Dr. Sarah Chen', specialty: 'Primary Care', services: ['primary'], available: true, rating: 4.9, completed: 342 },
+                { id: 2, name: 'Dr. Michael Torres', specialty: 'Urgent Care', services: ['urgent', 'primary'], available: false, rating: 4.8, completed: 256 },
+                { id: 3, name: 'Emily Rodriguez RN', specialty: 'Nursing', services: ['nurse'], available: true, rating: 4.9, completed: 428 },
+                { id: 4, name: 'Dr. James Kim', specialty: 'Physical Therapy', services: ['physical'], available: true, rating: 4.7, completed: 198 },
+                { id: 5, name: 'Dr. Lisa Wong', specialty: 'Chiropractor', services: ['chiro'], available: true, rating: 4.8, completed: 267 },
+                { id: 6, name: 'Dr. Rachel Green', specialty: 'Mental Health', services: ['mental'], available: true, rating: 4.9, completed: 312 },
+                { id: 7, name: 'David Martinez MLT', specialty: 'Lab Services', services: ['lab'], available: true, rating: 4.7, completed: 521 },
             ],
             currentProvider: null,
+            currentPatient: null,
             aiMessages: [],
             aiContext: {},
             aiState: 'initial',
@@ -39,7 +43,9 @@
             selectedService: null,
             pendingRequest: null,
             onboardingData: {},
-            onboardingStep: 1
+            onboardingStep: 1,
+            patientRegistrationData: {},
+            patientRegistrationStep: 1
         };
 
         const registeredCharities = [
@@ -173,6 +179,7 @@
             switch(state.currentView) {
                 case 'landing': return getLandingHTML();
                 case 'patient': return getPatientHTML();
+                case 'patient-registration': return getPatientRegistrationHTML();
                 case 'provider': return getProviderHTML();
                 case 'provider-onboarding': return getProviderOnboardingHTML();
                 case 'admin': return getAdminHTML();
@@ -310,11 +317,11 @@
                                             <div class="flex justify-between items-start">
                                                 <div>
                                                     <h4 class="font-bold text-lg">${req.service}</h4>
-                                                    <p class="text-gray-600">${req.provider} • ${req.scheduledTime}</p>
+                                                    <p class="text-gray-600">${req.provider} â€¢ ${req.scheduledTime}</p>
                                                 </div>
                                                 <div class="text-right">
                                                     <div class="text-xl font-bold">$${req.price}</div>
-                                                    <div class="text-green-600 text-sm mt-1">✓ Completed</div>
+                                                    <div class="text-green-600 text-sm mt-1">âœ“ Completed</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -551,6 +558,489 @@
             `;
         }
 
+        function getPatientRegistrationHTML() {
+            const step = state.patientRegistrationStep;
+            
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+                    <nav class="bg-white shadow-sm border-b">
+                        <div class="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 class="text-2xl font-bold text-indigo-600">Patient Registration</h1>
+                            <button onclick="changeView('landing')" class="text-gray-600 hover:text-gray-800">← Cancel</button>
+                        </div>
+                    </nav>
+
+                    <div class="max-w-4xl mx-auto px-4 py-8">
+                        <div class="mb-8">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-sm font-semibold ${step >= 1 ? 'text-indigo-600' : 'text-gray-400'}">1. Personal Info</span>
+                                <span class="text-sm font-semibold ${step >= 2 ? 'text-indigo-600' : 'text-gray-400'}">2. Medical Info</span>
+                                <span class="text-sm font-semibold ${step >= 3 ? 'text-indigo-600' : 'text-gray-400'}">3. Payment</span>
+                                <span class="text-sm font-semibold ${step >= 4 ? 'text-indigo-600' : 'text-gray-400'}">4. Review</span>
+                            </div>
+                            <div class="h-2 bg-gray-200 rounded-full">
+                                <div class="h-2 bg-indigo-600 rounded-full transition-all duration-300" style="width: ${(step / 4) * 100}%"></div>
+                            </div>
+                        </div>
+
+                        ${step === 1 ? getPatientRegStep1HTML() : ''}
+                        ${step === 2 ? getPatientRegStep2HTML() : ''}
+                        ${step === 3 ? getPatientRegStep3HTML() : ''}
+                        ${step === 4 ? getPatientRegStep4HTML() : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function getPatientRegStep1HTML() {
+            return `
+                <div class="bg-white rounded-xl shadow-lg p-8">
+                    <h2 class="text-2xl font-bold mb-2">Welcome to MedAngels!</h2>
+                    <p class="text-gray-600 mb-8">Let's create your patient profile.</p>
+
+                    <form id="patientRegForm1" onsubmit="submitPatientRegStep1(event)" class="space-y-6">
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    First Name <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" name="firstName" required value="${state.patientRegistrationData.firstName || ''}"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Last Name <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" name="lastName" required value="${state.patientRegistrationData.lastName || ''}"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Date of Birth <span class="text-red-500">*</span>
+                            </label>
+                            <input type="date" name="dob" required value="${state.patientRegistrationData.dob || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Phone Number <span class="text-red-500">*</span>
+                            </label>
+                            <input type="tel" name="phone" required value="${state.patientRegistrationData.phone || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="(555) 123-4567">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Email Address <span class="text-red-500">*</span>
+                            </label>
+                            <input type="email" name="email" required value="${state.patientRegistrationData.email || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Address <span class="text-red-500">*</span>
+                            </label>
+                            <input type="text" name="address" required value="${state.patientRegistrationData.address || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="123 Main Street">
+                        </div>
+
+                        <div class="grid md:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    City <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" name="city" required value="${state.patientRegistrationData.city || ''}"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    State <span class="text-red-500">*</span>
+                                </label>
+                                <select name="state" required class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                                    <option value="">Select</option>
+                                    <option value="NC" ${state.patientRegistrationData.state === 'NC' ? 'selected' : ''}>NC</option>
+                                    <option value="CA" ${state.patientRegistrationData.state === 'CA' ? 'selected' : ''}>CA</option>
+                                    <option value="NY" ${state.patientRegistrationData.state === 'NY' ? 'selected' : ''}>NY</option>
+                                    <option value="TX" ${state.patientRegistrationData.state === 'TX' ? 'selected' : ''}>TX</option>
+                                    <option value="FL" ${state.patientRegistrationData.state === 'FL' ? 'selected' : ''}>FL</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    ZIP Code <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" name="zip" required value="${state.patientRegistrationData.zip || ''}"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full bg-indigo-600 text-white py-4 rounded-lg hover:bg-indigo-700 transition text-lg font-semibold">
+                            Continue to Medical Information
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+
+        function getPatientRegStep2HTML() {
+            return `
+                <div class="bg-white rounded-xl shadow-lg p-8">
+                    <h2 class="text-2xl font-bold mb-2">Medical Information</h2>
+                    <p class="text-gray-600 mb-8">Help us provide better care by sharing your medical history.</p>
+
+                    <form id="patientRegForm2" onsubmit="submitPatientRegStep2(event)" class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Current Medications
+                            </label>
+                            <textarea name="medications" rows="3" value="${state.patientRegistrationData.medications || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="List any medications you're currently taking..."></textarea>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Allergies
+                            </label>
+                            <textarea name="allergies" rows="2" value="${state.patientRegistrationData.allergies || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="List any known allergies..."></textarea>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Medical Conditions
+                            </label>
+                            <textarea name="conditions" rows="3" value="${state.patientRegistrationData.conditions || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                placeholder="List any chronic conditions or past medical issues..."></textarea>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Emergency Contact Name <span class="text-red-500">*</span>
+                            </label>
+                            <input type="text" name="emergencyName" required value="${state.patientRegistrationData.emergencyName || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                Emergency Contact Phone <span class="text-red-500">*</span>
+                            </label>
+                            <input type="tel" name="emergencyPhone" required value="${state.patientRegistrationData.emergencyPhone || ''}"
+                                class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                        </div>
+
+                        <div class="flex gap-4">
+                            <button type="button" onclick="goToPatientRegStep(1)" class="flex-1 bg-gray-200 text-gray-700 py-4 rounded-lg hover:bg-gray-300 transition">
+                                ← Back
+                            </button>
+                            <button type="submit" class="flex-1 bg-indigo-600 text-white py-4 rounded-lg hover:bg-indigo-700 transition text-lg font-semibold">
+                                Continue to Payment
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+        }
+
+        function getPatientRegStep3HTML() {
+            return `
+                <div class="bg-white rounded-xl shadow-lg p-8">
+                    <h2 class="text-2xl font-bold mb-2">Payment Information</h2>
+                    <p class="text-gray-600 mb-8">Choose how you'd like to pay for services.</p>
+
+                    <form id="patientRegForm3" onsubmit="submitPatientRegStep3(event)" class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-4">
+                                Primary Payment Method <span class="text-red-500">*</span>
+                            </label>
+                            
+                            <div class="space-y-3">
+                                <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:border-indigo-600 transition ${state.patientRegistrationData.paymentType === 'insurance' ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}">
+                                    <input type="radio" name="paymentType" value="insurance" 
+                                        ${state.patientRegistrationData.paymentType === 'insurance' ? 'checked' : ''}
+                                        onchange="updatePaymentForm()" class="mt-1 mr-3 w-5 h-5 text-indigo-600">
+                                    <div class="flex-1">
+                                        <div class="font-semibold text-gray-900">🏥 Insurance</div>
+                                        <p class="text-sm text-gray-600 mt-1">Bill through your health insurance provider</p>
+                                    </div>
+                                </label>
+
+                                <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:border-indigo-600 transition ${state.patientRegistrationData.paymentType === 'credit' ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}">
+                                    <input type="radio" name="paymentType" value="credit"
+                                        ${state.patientRegistrationData.paymentType === 'credit' ? 'checked' : ''}
+                                        onchange="updatePaymentForm()" class="mt-1 mr-3 w-5 h-5 text-indigo-600">
+                                    <div class="flex-1">
+                                        <div class="font-semibold text-gray-900">💳 Credit/Debit Card</div>
+                                        <p class="text-sm text-gray-600 mt-1">Direct payment with card</p>
+                                    </div>
+                                </label>
+
+                                <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:border-indigo-600 transition ${state.patientRegistrationData.paymentType === 'hsa' ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}">
+                                    <input type="radio" name="paymentType" value="hsa"
+                                        ${state.patientRegistrationData.paymentType === 'hsa' ? 'checked' : ''}
+                                        onchange="updatePaymentForm()" class="mt-1 mr-3 w-5 h-5 text-indigo-600">
+                                    <div class="flex-1">
+                                        <div class="font-semibold text-gray-900">🏦 HSA/FSA</div>
+                                        <p class="text-sm text-gray-600 mt-1">Health Savings or Flexible Spending Account</p>
+                                    </div>
+                                </label>
+
+                                <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer hover:border-indigo-600 transition ${state.patientRegistrationData.paymentType === 'financing' ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}">
+                                    <input type="radio" name="paymentType" value="financing"
+                                        ${state.patientRegistrationData.paymentType === 'financing' ? 'checked' : ''}
+                                        onchange="updatePaymentForm()" class="mt-1 mr-3 w-5 h-5 text-indigo-600">
+                                    <div class="flex-1">
+                                        <div class="font-semibold text-gray-900">📅 Financing</div>
+                                        <p class="text-sm text-gray-600 mt-1">Pay over time with approved financing</p>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="insuranceFields" class="hidden space-y-4">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Insurance Provider <span class="text-red-500">*</span>
+                                </label>
+                                <select name="insuranceProvider" id="insuranceProviderSelect"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                                    <option value="">Select provider</option>
+                                    <option value="bcbs">Blue Cross Blue Shield</option>
+                                    <option value="aetna">Aetna</option>
+                                    <option value="uhc">UnitedHealthcare</option>
+                                    <option value="cigna">Cigna</option>
+                                    <option value="humana">Humana</option>
+                                    <option value="medicare">Medicare</option>
+                                    <option value="medicaid">Medicaid</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Member ID <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" name="memberId" id="memberIdInput"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Group Number
+                                </label>
+                                <input type="text" name="groupNumber"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                            </div>
+                        </div>
+
+                        <div id="creditFields" class="hidden space-y-4">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Card Number <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" name="cardNumber" id="cardNumberInput" maxlength="19"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                    placeholder="1234 5678 9012 3456">
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                        Expiry Date <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="text" name="cardExpiry" id="cardExpiryInput" maxlength="5"
+                                        class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                        placeholder="MM/YY">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                        CVV <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="text" name="cardCvv" id="cardCvvInput" maxlength="4"
+                                        class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                                        placeholder="123">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Name on Card <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" name="cardName" id="cardNameInput"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                            </div>
+                        </div>
+
+                        <div id="hsaFields" class="hidden space-y-4">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Account Type <span class="text-red-500">*</span>
+                                </label>
+                                <select name="hsaType" id="hsaTypeSelect"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                                    <option value="">Select type</option>
+                                    <option value="hsa">Health Savings Account (HSA)</option>
+                                    <option value="fsa">Flexible Spending Account (FSA)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Card Number <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" name="hsaCard" id="hsaCardInput"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                            </div>
+                        </div>
+
+                        <div id="financingFields" class="hidden space-y-4">
+                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                <p class="text-sm text-blue-900 font-semibold mb-2">💡 Financing Options</p>
+                                <p class="text-sm text-blue-800">Subject to credit approval. Monthly payment plans available through our partners.</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    Preferred Partner <span class="text-red-500">*</span>
+                                </label>
+                                <select name="financingPartner" id="financingPartnerSelect"
+                                    class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600">
+                                    <option value="">Select financing partner</option>
+                                    <option value="carecredit">CareCredit</option>
+                                    <option value="affirm">Affirm</option>
+                                    <option value="lendingclub">LendingClub</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <label class="flex items-start">
+                                <input type="checkbox" name="agreeTerms" required class="mt-1 mr-3 w-5 h-5 text-indigo-600 rounded">
+                                <span class="text-sm text-gray-700">
+                                    I authorize MedAngels to charge the selected payment method for services rendered. 
+                                    I understand that payment is due at time of service unless otherwise arranged.
+                                </span>
+                            </label>
+                        </div>
+
+                        <div class="flex gap-4">
+                            <button type="button" onclick="goToPatientRegStep(2)" class="flex-1 bg-gray-200 text-gray-700 py-4 rounded-lg hover:bg-gray-300 transition">
+                                ← Back
+                            </button>
+                            <button type="submit" class="flex-1 bg-indigo-600 text-white py-4 rounded-lg hover:bg-indigo-700 transition text-lg font-semibold">
+                                Continue to Review
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+        }
+
+        function getPatientRegStep4HTML() {
+            const data = state.patientRegistrationData;
+            
+            return `
+                <div class="bg-white rounded-xl shadow-lg p-8">
+                    <h2 class="text-2xl font-bold mb-2">Review Your Information</h2>
+                    <p class="text-gray-600 mb-8">Please review your details before completing registration.</p>
+
+                    <div class="space-y-6">
+                        <div class="border rounded-lg p-6">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="font-bold text-lg">Personal Information</h3>
+                                <button onclick="goToPatientRegStep(1)" class="text-indigo-600 hover:text-indigo-700 text-sm font-semibold">Edit</button>
+                            </div>
+                            <div class="grid md:grid-cols-2 gap-4 text-sm">
+                                <div><span class="text-gray-600">Name:</span> <span class="font-semibold ml-2">${data.firstName} ${data.lastName}</span></div>
+                                <div><span class="text-gray-600">DOB:</span> <span class="font-semibold ml-2">${data.dob}</span></div>
+                                <div><span class="text-gray-600">Phone:</span> <span class="font-semibold ml-2">${data.phone}</span></div>
+                                <div><span class="text-gray-600">Email:</span> <span class="font-semibold ml-2">${data.email}</span></div>
+                                <div class="md:col-span-2"><span class="text-gray-600">Address:</span> <span class="font-semibold ml-2">${data.address}, ${data.city}, ${data.state} ${data.zip}</span></div>
+                            </div>
+                        </div>
+
+                        <div class="border rounded-lg p-6">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="font-bold text-lg">Medical Information</h3>
+                                <button onclick="goToPatientRegStep(2)" class="text-indigo-600 hover:text-indigo-700 text-sm font-semibold">Edit</button>
+                            </div>
+                            <div class="space-y-2 text-sm">
+                                <div><span class="text-gray-600">Medications:</span> <span class="ml-2">${data.medications || 'None listed'}</span></div>
+                                <div><span class="text-gray-600">Allergies:</span> <span class="ml-2">${data.allergies || 'None listed'}</span></div>
+                                <div><span class="text-gray-600">Conditions:</span> <span class="ml-2">${data.conditions || 'None listed'}</span></div>
+                                <div><span class="text-gray-600">Emergency Contact:</span> <span class="ml-2">${data.emergencyName} - ${data.emergencyPhone}</span></div>
+                            </div>
+                        </div>
+
+                        <div class="border rounded-lg p-6">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="font-bold text-lg">Payment Method</h3>
+                                <button onclick="goToPatientRegStep(3)" class="text-indigo-600 hover:text-indigo-700 text-sm font-semibold">Edit</button>
+                            </div>
+                            ${data.paymentType === 'insurance' ? `
+                                <div class="flex items-center gap-3 bg-blue-50 px-4 py-3 rounded-lg">
+                                    <span class="text-2xl">🏥</span>
+                                    <div>
+                                        <div class="font-semibold">Insurance</div>
+                                        <p class="text-sm text-gray-600">${data.insuranceProvider} - Member ID: ${data.memberId}</p>
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${data.paymentType === 'credit' ? `
+                                <div class="flex items-center gap-3 bg-blue-50 px-4 py-3 rounded-lg">
+                                    <span class="text-2xl">💳</span>
+                                    <div>
+                                        <div class="font-semibold">Credit/Debit Card</div>
+                                        <p class="text-sm text-gray-600">Card ending in ${data.cardNumber ? data.cardNumber.slice(-4) : '****'}</p>
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${data.paymentType === 'hsa' ? `
+                                <div class="flex items-center gap-3 bg-blue-50 px-4 py-3 rounded-lg">
+                                    <span class="text-2xl">🏦</span>
+                                    <div>
+                                        <div class="font-semibold">HSA/FSA</div>
+                                        <p class="text-sm text-gray-600">${data.hsaType === 'hsa' ? 'Health Savings Account' : 'Flexible Spending Account'}</p>
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${data.paymentType === 'financing' ? `
+                                <div class="flex items-center gap-3 bg-blue-50 px-4 py-3 rounded-lg">
+                                    <span class="text-2xl">📅</span>
+                                    <div>
+                                        <div class="font-semibold">Financing</div>
+                                        <p class="text-sm text-gray-600">${data.financingPartner}</p>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-6">
+                            <div class="flex items-start gap-3">
+                                <span class="text-3xl">✅</span>
+                                <div>
+                                    <h4 class="font-bold text-green-900 mb-2">Ready to Get Started!</h4>
+                                    <p class="text-sm text-green-800">By completing registration, you agree to MedAngels's Terms of Service and Privacy Policy.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-4">
+                            <button onclick="goToPatientRegStep(3)" class="flex-1 bg-gray-200 text-gray-700 py-4 rounded-lg hover:bg-gray-300 transition">
+                                ← Back
+                            </button>
+                            <button onclick="completePatientRegistration()" class="flex-1 bg-green-600 text-white py-4 rounded-lg hover:bg-green-700 transition text-lg font-semibold">
+                                Complete Registration 🎉
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         function getProviderOnboardingHTML() {
             const step = state.onboardingStep;
             
@@ -728,7 +1218,7 @@
                                             <span class="text-2xl">${service.icon}</span>
                                             <span class="font-semibold text-gray-900">${service.name}</span>
                                         </div>
-                                        <p class="text-sm text-gray-500 mt-1">Base: $${service.basePrice} • ${service.time}</p>
+                                        <p class="text-sm text-gray-500 mt-1">Base: $${service.basePrice} â€¢ ${service.time}</p>
                                     </div>
                                 </label>
                             `).join('')}
@@ -786,7 +1276,7 @@
 
                     <form id="onboardingForm3" onsubmit="submitOnboardingStep3(event)" class="space-y-6">
                         <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
-                            <h3 class="font-bold text-lg mb-3 text-blue-900">💡 Compensation Options</h3>
+                            <h3 class="font-bold text-lg mb-3 text-blue-900">ðŸ’¡ Compensation Options</h3>
                             <p class="text-sm text-blue-800 mb-4">You can choose to keep your earnings, donate your time completely, or donate proceeds to charity while covering your costs.</p>
                         </div>
 
@@ -805,7 +1295,7 @@
                                         onchange="updateCompensationForm()"
                                         class="mt-1 mr-3 w-5 h-5 text-indigo-600 focus:ring-2 focus:ring-indigo-600">
                                     <div class="flex-1">
-                                        <div class="font-semibold text-gray-900">💰 Keep Earnings</div>
+                                        <div class="font-semibold text-gray-900">ðŸ’° Keep Earnings</div>
                                         <p class="text-sm text-gray-600 mt-1">Receive full payment for your services</p>
                                     </div>
                                 </label>
@@ -819,10 +1309,10 @@
                                         onchange="updateCompensationForm()"
                                         class="mt-1 mr-3 w-5 h-5 text-green-600 focus:ring-2 focus:ring-green-600">
                                     <div class="flex-1">
-                                        <div class="font-semibold text-gray-900">🎁 Donate Time (Pro Bono)</div>
+                                        <div class="font-semibold text-gray-900">ðŸŽ Donate Time (Pro Bono)</div>
                                         <p class="text-sm text-gray-600 mt-1">Provide services for free to those in need</p>
                                         <div class="mt-2 px-3 py-1 bg-green-100 text-green-800 text-xs rounded-full inline-block">
-                                            ⭐ Verified Volunteer Badge
+                                            â­ Verified Volunteer Badge
                                         </div>
                                     </div>
                                 </label>
@@ -836,10 +1326,10 @@
                                         onchange="updateCompensationForm()"
                                         class="mt-1 mr-3 w-5 h-5 text-purple-600 focus:ring-2 focus:ring-purple-600">
                                     <div class="flex-1">
-                                        <div class="font-semibold text-gray-900">❤️ Donate Proceeds to Charity</div>
+                                        <div class="font-semibold text-gray-900">â¤ï¸ Donate Proceeds to Charity</div>
                                         <p class="text-sm text-gray-600 mt-1">Patients pay, but all proceeds go to your chosen charity</p>
                                         <div class="mt-2 px-3 py-1 bg-purple-100 text-purple-800 text-xs rounded-full inline-block">
-                                            ⭐ Charitable Provider Badge
+                                            â­ Charitable Provider Badge
                                         </div>
                                     </div>
                                 </label>
@@ -865,18 +1355,18 @@
                         </div>
 
                         <div class="bg-gray-50 rounded-lg p-6">
-                            <h4 class="font-semibold mb-3">📋 What happens next:</h4>
+                            <h4 class="font-semibold mb-3">ðŸ“‹ What happens next:</h4>
                             <ul class="space-y-2 text-sm text-gray-700">
                                 <li class="flex items-start">
-                                    <span class="mr-2">•</span>
+                                    <span class="mr-2">â€¢</span>
                                     <span>Your profile will display your compensation choice</span>
                                 </li>
                                 <li class="flex items-start">
-                                    <span class="mr-2">•</span>
+                                    <span class="mr-2">â€¢</span>
                                     <span>Patients can filter providers by donation status</span>
                                 </li>
                                 <li class="flex items-start">
-                                    <span class="mr-2">•</span>
+                                    <span class="mr-2">â€¢</span>
                                     <span>Tax receipts will be provided for charitable donations</span>
                                 </li>
                             </ul>
@@ -978,7 +1468,7 @@
                             </div>
                             ${data.compensationType === 'keep' ? `
                                 <div class="flex items-center gap-3 bg-blue-50 px-4 py-3 rounded-lg">
-                                    <span class="text-2xl">💰</span>
+                                    <span class="text-2xl">ðŸ’°</span>
                                     <div>
                                         <div class="font-semibold">Keep Earnings</div>
                                         <p class="text-sm text-gray-600">Receiving full payment for services</p>
@@ -987,24 +1477,24 @@
                             ` : ''}
                             ${data.compensationType === 'donate-time' ? `
                                 <div class="flex items-center gap-3 bg-green-50 px-4 py-3 rounded-lg">
-                                    <span class="text-2xl">🎁</span>
+                                    <span class="text-2xl">ðŸŽ</span>
                                     <div>
                                         <div class="font-semibold">Donating Time (Pro Bono)</div>
                                         <p class="text-sm text-gray-600">Providing free services to those in need</p>
                                         <div class="mt-2 px-3 py-1 bg-green-100 text-green-800 text-xs rounded-full inline-block">
-                                            ⭐ Verified Volunteer Badge
+                                            â­ Verified Volunteer Badge
                                         </div>
                                     </div>
                                 </div>
                             ` : ''}
                             ${data.compensationType === 'donate-proceeds' ? `
                                 <div class="flex items-center gap-3 bg-purple-50 px-4 py-3 rounded-lg">
-                                    <span class="text-2xl">❤️</span>
+                                    <span class="text-2xl">â¤ï¸</span>
                                     <div class="flex-1">
                                         <div class="font-semibold">Donating Proceeds to Charity</div>
                                         <p class="text-sm text-gray-600">All proceeds donated to: <span class="font-semibold">${selectedCharity ? selectedCharity.name : 'Selected Charity'}</span></p>
                                         <div class="mt-2 px-3 py-1 bg-purple-100 text-purple-800 text-xs rounded-full inline-block">
-                                            ⭐ Charitable Provider Badge
+                                            â­ Charitable Provider Badge
                                         </div>
                                     </div>
                                 </div>
@@ -1013,7 +1503,7 @@
 
                         <div class="bg-green-50 border border-green-200 rounded-lg p-6">
                             <div class="flex items-start gap-3">
-                                <span class="text-3xl">✅</span>
+                                <span class="text-3xl">âœ…</span>
                                 <div>
                                     <h4 class="font-bold text-green-900 mb-2">Ready to Launch!</h4>
                                     <p class="text-sm text-green-800">By completing registration, you agree to MedAngels's Terms of Service and Provider Agreement.</p>
@@ -1026,7 +1516,7 @@
                                 ← Back
                             </button>
                             <button onclick="completeOnboarding()" class="flex-1 bg-green-600 text-white py-4 rounded-lg hover:bg-green-700 transition text-lg font-semibold">
-                                Complete Registration 🎉
+                                Complete Registration ðŸŽ‰
                             </button>
                         </div>
                     </div>
@@ -1036,10 +1526,35 @@
 
         function getProviderHTML() {
             const provider = state.currentProvider || state.providers[0];
-            const pendingRequests = state.providerRequests.filter(r => r.status === 'pending');
-            const acceptedRequests = state.providerRequests.filter(r => r.status === 'accepted' || r.status === 'in-progress');
-            const completedToday = state.providerRequests.filter(r => r.status === 'completed').length;
-            const earningsToday = state.providerRequests.filter(r => r.status === 'completed').reduce((sum, r) => sum + r.price, 0);
+            
+            // Filter requests to only show those matching this provider's services
+            const allPendingRequests = state.providerRequests.filter(r => r.status === 'pending');
+            const pendingRequests = allPendingRequests.filter(req => {
+                const service = services.find(s => s.name === req.service);
+                const serviceId = service ? service.id : null;
+                return provider.services && provider.services.includes(serviceId);
+            });
+            
+            const allAcceptedRequests = state.providerRequests.filter(r => r.status === 'accepted' || r.status === 'in-progress');
+            const acceptedRequests = allAcceptedRequests.filter(req => {
+                const service = services.find(s => s.name === req.service);
+                const serviceId = service ? service.id : null;
+                return provider.services && provider.services.includes(serviceId);
+            });
+            
+            const completedToday = state.providerRequests.filter(r => {
+                if (r.status !== 'completed') return false;
+                const service = services.find(s => s.name === r.service);
+                const serviceId = service ? service.id : null;
+                return provider.services && provider.services.includes(serviceId);
+            }).length;
+            
+            const earningsToday = state.providerRequests.filter(r => {
+                if (r.status !== 'completed') return false;
+                const service = services.find(s => s.name === r.service);
+                const serviceId = service ? service.id : null;
+                return provider.services && provider.services.includes(serviceId);
+            }).reduce((sum, r) => sum + r.price, 0);
 
             return `
                 <div class="min-h-screen bg-gray-50">
@@ -1252,7 +1767,7 @@
                                                     <span class="px-3 py-1 rounded-full text-sm ${provider.available ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
                                                         ${provider.available ? 'Online' : 'Offline'}
                                                     </span>
-                                                    <p class="text-xs text-gray-500 mt-1">⭐ ${provider.rating} (${provider.completed})</p>
+                                                    <p class="text-xs text-gray-500 mt-1">â­ ${provider.rating} (${provider.completed})</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -1269,9 +1784,32 @@
             state.currentRole = role;
             if (role === 'provider') {
                 showProviderLoginModal();
+            } else if (role === 'patient') {
+                showPatientLoginModal();
             } else {
                 changeView(role);
             }
+        }
+
+        function showPatientLoginModal() {
+            const choice = confirm('Are you a new patient?\n\nClick OK to register as new patient\nClick Cancel to login as existing patient');
+            if (choice) {
+                startPatientRegistration();
+            } else {
+                // Simulate existing patient login
+                state.currentPatient = { 
+                    name: 'John Doe', 
+                    email: 'john@example.com',
+                    registered: true 
+                };
+                changeView('patient');
+            }
+        }
+
+        function startPatientRegistration() {
+            state.patientRegistrationData = {};
+            state.patientRegistrationStep = 1;
+            changeView('patient-registration');
         }
 
         function showProviderLoginModal() {
@@ -1279,7 +1817,16 @@
             if (choice) {
                 startProviderOnboarding();
             } else {
-                state.currentProvider = state.providers[0];
+                // Let user pick which provider to simulate
+                const providerNames = state.providers.map((p, i) => `${i + 1}. ${p.name} (${p.specialty})`).join('\n');
+                const selection = prompt(`Select provider (enter number 1-${state.providers.length}):\n\n${providerNames}`);
+                const index = parseInt(selection) - 1;
+                
+                if (index >= 0 && index < state.providers.length) {
+                    state.currentProvider = state.providers[index];
+                } else {
+                    state.currentProvider = state.providers[0];
+                }
                 changeView('provider');
             }
         }
@@ -1381,11 +1928,25 @@
         }
 
         function matchProviderToRequest(requestId) {
-            const availableProviders = state.providers.filter(p => p.available);
-            if (availableProviders.length === 0) return;
-
-            const provider = availableProviders[0];
             const request = state.patientRequests.find(r => r.id === requestId);
+            if (!request) return;
+
+            // Find the service ID from the request
+            const service = services.find(s => s.name === request.service);
+            const serviceId = service ? service.id : null;
+
+            // Filter providers who: 1) are available, 2) offer this service
+            const matchingProviders = state.providers.filter(p => 
+                p.available && p.services && p.services.includes(serviceId)
+            );
+
+            if (matchingProviders.length === 0) {
+                // No matching providers available, try any available provider as fallback
+                const anyAvailable = state.providers.filter(p => p.available);
+                if (anyAvailable.length === 0) return;
+            }
+
+            const provider = matchingProviders.length > 0 ? matchingProviders[0] : state.providers.filter(p => p.available)[0];
             const providerRequest = state.providerRequests.find(r => r.id === requestId);
 
             if (request && providerRequest) {
@@ -1598,7 +2159,7 @@
                     const service = services.find(s => s.id === state.aiContext.serviceId);
 
                     return {
-                        message: `Perfect! Based on your needs, I've calculated the price for ${state.aiContext.serviceName}:\n\n💰 Final Price: $${price}\n⏱️ Duration: ${service.time}\n\nWould you like to proceed with this request?`,
+                        message: `Perfect! Based on your needs, I've calculated the price for ${state.aiContext.serviceName}:\n\nðŸ’° Final Price: $${price}\nâ±ï¸ Duration: ${service.time}\n\nWould you like to proceed with this request?`,
                         newState: 'confirming',
                         ready: true
                     };
@@ -1628,6 +2189,118 @@
                 state.aiContext = {};
                 state.aiState = 'initial';
             }
+        }
+
+        function submitPatientRegStep1(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            
+            for (let [key, value] of formData.entries()) {
+                state.patientRegistrationData[key] = value;
+            }
+            
+            state.patientRegistrationStep = 2;
+            render();
+        }
+
+        function submitPatientRegStep2(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            
+            for (let [key, value] of formData.entries()) {
+                state.patientRegistrationData[key] = value;
+            }
+            
+            state.patientRegistrationStep = 3;
+            render();
+        }
+
+        function submitPatientRegStep3(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            
+            const paymentType = formData.get('paymentType');
+            if (!paymentType) {
+                alert('Please select a payment method');
+                return;
+            }
+            
+            for (let [key, value] of formData.entries()) {
+                state.patientRegistrationData[key] = value;
+            }
+            
+            state.patientRegistrationStep = 4;
+            render();
+        }
+
+        function goToPatientRegStep(step) {
+            state.patientRegistrationStep = step;
+            render();
+        }
+
+        function updatePaymentForm() {
+            const insuranceFields = document.getElementById('insuranceFields');
+            const creditFields = document.getElementById('creditFields');
+            const hsaFields = document.getElementById('hsaFields');
+            const financingFields = document.getElementById('financingFields');
+            const paymentType = document.querySelector('input[name="paymentType"]:checked');
+            
+            // Hide all
+            insuranceFields?.classList.add('hidden');
+            creditFields?.classList.add('hidden');
+            hsaFields?.classList.add('hidden');
+            financingFields?.classList.add('hidden');
+            
+            // Clear required
+            document.getElementById('insuranceProviderSelect')?.removeAttribute('required');
+            document.getElementById('memberIdInput')?.removeAttribute('required');
+            document.getElementById('cardNumberInput')?.removeAttribute('required');
+            document.getElementById('cardExpiryInput')?.removeAttribute('required');
+            document.getElementById('cardCvvInput')?.removeAttribute('required');
+            document.getElementById('cardNameInput')?.removeAttribute('required');
+            document.getElementById('hsaTypeSelect')?.removeAttribute('required');
+            document.getElementById('hsaCardInput')?.removeAttribute('required');
+            document.getElementById('financingPartnerSelect')?.removeAttribute('required');
+            
+            // Show relevant
+            if (paymentType?.value === 'insurance') {
+                insuranceFields?.classList.remove('hidden');
+                document.getElementById('insuranceProviderSelect')?.setAttribute('required', 'required');
+                document.getElementById('memberIdInput')?.setAttribute('required', 'required');
+            } else if (paymentType?.value === 'credit') {
+                creditFields?.classList.remove('hidden');
+                document.getElementById('cardNumberInput')?.setAttribute('required', 'required');
+                document.getElementById('cardExpiryInput')?.setAttribute('required', 'required');
+                document.getElementById('cardCvvInput')?.setAttribute('required', 'required');
+                document.getElementById('cardNameInput')?.setAttribute('required', 'required');
+            } else if (paymentType?.value === 'hsa') {
+                hsaFields?.classList.remove('hidden');
+                document.getElementById('hsaTypeSelect')?.setAttribute('required', 'required');
+                document.getElementById('hsaCardInput')?.setAttribute('required', 'required');
+            } else if (paymentType?.value === 'financing') {
+                financingFields?.classList.remove('hidden');
+                document.getElementById('financingPartnerSelect')?.setAttribute('required', 'required');
+            }
+        }
+
+        function completePatientRegistration() {
+            const data = state.patientRegistrationData;
+            state.currentPatient = {
+                name: `${data.firstName} ${data.lastName}`,
+                email: data.email,
+                phone: data.phone,
+                registered: true,
+                ...data
+            };
+            
+            state.patientRegistrationData = {};
+            state.patientRegistrationStep = 1;
+            
+            alert('🎉 Registration complete! Welcome to MedAngels, ' + state.currentPatient.name + '!');
+            changeView('patient');
         }
 
         function submitOnboardingStep1(event) {
@@ -1745,7 +2418,7 @@
             state.onboardingStep = 1;
             
             // Show success message
-            alert('🎉 Registration complete! Welcome to MedAngels, ' + newProvider.name + '!');
+            alert('ðŸŽ‰ Registration complete! Welcome to MedAngels, ' + newProvider.name + '!');
             
             // Navigate to provider portal
             changeView('provider');
