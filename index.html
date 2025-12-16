@@ -1689,90 +1689,299 @@
         }
 
         function getAdminHTML() {
+            // High-fidelity data calculations
             const totalRequests = state.patientRequests.length;
-            const activeRequests = state.patientRequests.filter(r => r.status !== 'completed').length;
+            const pendingRequests = state.patientRequests.filter(r => r.status === 'pending' || r.status === 'matched').length;
+            const activeRequests = state.patientRequests.filter(r => r.status === 'accepted' || r.status === 'in-progress').length;
+            const completedRequests = state.patientRequests.filter(r => r.status === 'completed').length;
+            
             const totalRevenue = state.patientRequests.filter(r => r.status === 'completed').reduce((sum, r) => sum + r.price, 0);
+            const pendingRevenue = state.patientRequests.filter(r => r.status === 'accepted' || r.status === 'in-progress').reduce((sum, r) => sum + r.price, 0);
+            const potentialRevenue = state.patientRequests.filter(r => r.status === 'pending' || r.status === 'matched').reduce((sum, r) => sum + r.price, 0);
+            
             const activeProviders = state.providers.filter(p => p.available).length;
-
+            const totalProviders = state.providers.length;
+            const utilizationRate = totalProviders > 0 ? Math.round((activeProviders / totalProviders) * 100) : 0;
+            
+            // Service breakdown
+            const serviceBreakdown = {};
+            state.patientRequests.forEach(req => {
+                if (!serviceBreakdown[req.service]) {
+                    serviceBreakdown[req.service] = { count: 0, revenue: 0, completed: 0 };
+                }
+                serviceBreakdown[req.service].count++;
+                if (req.status === 'completed') {
+                    serviceBreakdown[req.service].revenue += req.price;
+                    serviceBreakdown[req.service].completed++;
+                }
+            });
+            
+            // Provider performance
+            const providerPerformance = state.providers.map(provider => {
+                const providerRequests = state.patientRequests.filter(r => r.provider === provider.name);
+                const completed = providerRequests.filter(r => r.status === 'completed').length;
+                const revenue = providerRequests.filter(r => r.status === 'completed').reduce((sum, r) => sum + r.price, 0);
+                const active = providerRequests.filter(r => r.status === 'accepted' || r.status === 'in-progress').length;
+                
+                return {
+                    ...provider,
+                    requestCount: providerRequests.length,
+                    completedCount: completed,
+                    activeCount: active,
+                    revenue: revenue
+                };
+            }).sort((a, b) => b.revenue - a.revenue);
+            
+            // Request lifecycle timeline
+            const requestTimeline = state.patientRequests.map(req => ({
+                ...req,
+                createdTime: new Date(req.createdAt).toLocaleString(),
+                ageMinutes: Math.round((Date.now() - new Date(req.createdAt).getTime()) / 60000)
+            })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            
+            // Conversion metrics
+            const conversionRate = totalRequests > 0 ? Math.round((completedRequests / totalRequests) * 100) : 0;
+            const avgRequestValue = completedRequests > 0 ? Math.round(totalRevenue / completedRequests) : 0;
+            
             return `
                 <div class="min-h-screen bg-gray-50">
-                    <nav class="bg-white shadow-sm border-b">
+                    <nav class="bg-white shadow-sm border-b sticky top-0 z-10">
                         <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-                            <h1 class="text-2xl font-bold text-indigo-600">Admin Dashboard</h1>
+                            <div>
+                                <h1 class="text-2xl font-bold text-indigo-600">Admin Operations Center</h1>
+                                <p class="text-sm text-gray-500">Real-time platform analytics & monitoring</p>
+                            </div>
                             <button onclick="changeView('landing')" class="text-gray-600 hover:text-gray-800">← Back</button>
                         </div>
                     </nav>
 
                     <div class="max-w-7xl mx-auto px-4 py-8">
+                        <!-- Key Metrics -->
                         <div class="grid md:grid-cols-4 gap-6 mb-8">
-                            <div class="bg-white rounded-xl shadow-lg p-6">
-                                <p class="text-gray-600 mb-2">Total Requests</p>
-                                <p class="text-4xl font-bold text-indigo-600">${totalRequests}</p>
-                            </div>
-
-                            <div class="bg-white rounded-xl shadow-lg p-6">
-                                <p class="text-gray-600 mb-2">Active Requests</p>
-                                <p class="text-4xl font-bold text-green-600">${activeRequests}</p>
-                            </div>
-
-                            <div class="bg-white rounded-xl shadow-lg p-6">
-                                <p class="text-gray-600 mb-2">Active Providers</p>
-                                <p class="text-4xl font-bold text-blue-600">${activeProviders}/${state.providers.length}</p>
-                            </div>
-
-                            <div class="bg-white rounded-xl shadow-lg p-6">
-                                <p class="text-gray-600 mb-2">Total Revenue</p>
-                                <p class="text-4xl font-bold text-purple-600">$${totalRevenue}</p>
-                            </div>
-                        </div>
-
-                        <div class="grid md:grid-cols-2 gap-6">
-                            <div class="bg-white rounded-xl shadow-lg p-6">
-                                <h3 class="text-xl font-bold mb-4">All Requests</h3>
-                                <div class="space-y-3 max-h-96 overflow-y-auto">
-                                    ${state.patientRequests.length > 0 ? state.patientRequests.map(req => `
-                                        <div class="border rounded-lg p-3">
-                                            <div class="flex justify-between items-start">
-                                                <div class="flex-1">
-                                                    <p class="font-semibold">${req.service}</p>
-                                                    <p class="text-sm text-gray-600">${req.description}</p>
-                                                    ${req.provider ? `<p class="text-sm text-indigo-600 mt-1">${req.provider}</p>` : ''}
-                                                </div>
-                                                <div class="text-right ml-4">
-                                                    <p class="font-bold">$${req.price}</p>
-                                                    <span class="text-xs px-2 py-1 rounded-full ${
-                                                        req.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                                                        req.status === 'accepted' ? 'bg-green-100 text-green-800' :
-                                                        req.status === 'in-progress' ? 'bg-blue-100 text-blue-800' :
-                                                        'bg-gray-100 text-gray-800'
-                                                    }">${req.status}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    `).join('') : '<p class="text-gray-500 text-center py-8">No requests yet</p>'}
+                            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-indigo-500">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <p class="text-gray-600 text-sm mb-1">Total Requests</p>
+                                        <p class="text-4xl font-bold text-indigo-600">${totalRequests}</p>
+                                        <p class="text-xs text-gray-500 mt-2">
+                                            ${pendingRequests} pending • ${activeRequests} active
+                                        </p>
+                                    </div>
+                                    <div class="text-3xl">📊</div>
                                 </div>
                             </div>
 
+                            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-green-500">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <p class="text-gray-600 text-sm mb-1">Completed</p>
+                                        <p class="text-4xl font-bold text-green-600">${completedRequests}</p>
+                                        <p class="text-xs text-gray-500 mt-2">
+                                            ${conversionRate}% conversion rate
+                                        </p>
+                                    </div>
+                                    <div class="text-3xl">✅</div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-purple-500">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <p class="text-gray-600 text-sm mb-1">Total Revenue</p>
+                                        <p class="text-4xl font-bold text-purple-600">$${totalRevenue}</p>
+                                        <p class="text-xs text-gray-500 mt-2">
+                                            $${pendingRevenue} in progress
+                                        </p>
+                                    </div>
+                                    <div class="text-3xl">💰</div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-lg p-6 border-l-4 border-blue-500">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <p class="text-gray-600 text-sm mb-1">Provider Utilization</p>
+                                        <p class="text-4xl font-bold text-blue-600">${utilizationRate}%</p>
+                                        <p class="text-xs text-gray-500 mt-2">
+                                            ${activeProviders}/${totalProviders} providers online
+                                        </p>
+                                    </div>
+                                    <div class="text-3xl">👥</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Request Lifecycle Pipeline -->
+                        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+                            <h3 class="text-xl font-bold mb-6">Request Lifecycle Pipeline</h3>
+                            <div class="grid grid-cols-5 gap-4">
+                                <div class="text-center">
+                                    <div class="bg-yellow-100 rounded-lg p-4 mb-2">
+                                        <p class="text-3xl font-bold text-yellow-700">${state.patientRequests.filter(r => r.status === 'pending').length}</p>
+                                    </div>
+                                    <p class="text-sm font-semibold text-gray-700">Pending</p>
+                                    <p class="text-xs text-gray-500">Awaiting match</p>
+                                </div>
+                                
+                                <div class="flex items-center justify-center text-2xl text-gray-300">→</div>
+                                
+                                <div class="text-center">
+                                    <div class="bg-orange-100 rounded-lg p-4 mb-2">
+                                        <p class="text-3xl font-bold text-orange-700">${state.patientRequests.filter(r => r.status === 'matched').length}</p>
+                                    </div>
+                                    <p class="text-sm font-semibold text-gray-700">Matched</p>
+                                    <p class="text-xs text-gray-500">Finding provider</p>
+                                </div>
+                                
+                                <div class="flex items-center justify-center text-2xl text-gray-300">→</div>
+                                
+                                <div class="text-center">
+                                    <div class="bg-blue-100 rounded-lg p-4 mb-2">
+                                        <p class="text-3xl font-bold text-blue-700">${state.patientRequests.filter(r => r.status === 'accepted').length}</p>
+                                    </div>
+                                    <p class="text-sm font-semibold text-gray-700">Accepted</p>
+                                    <p class="text-xs text-gray-500">Scheduled</p>
+                                </div>
+                                
+                                <div class="flex items-center justify-center text-2xl text-gray-300">→</div>
+                                
+                                <div class="text-center">
+                                    <div class="bg-indigo-100 rounded-lg p-4 mb-2">
+                                        <p class="text-3xl font-bold text-indigo-700">${state.patientRequests.filter(r => r.status === 'in-progress').length}</p>
+                                    </div>
+                                    <p class="text-sm font-semibold text-gray-700">In Progress</p>
+                                    <p class="text-xs text-gray-500">Service active</p>
+                                </div>
+                                
+                                <div class="flex items-center justify-center text-2xl text-gray-300">→</div>
+                                
+                                <div class="text-center">
+                                    <div class="bg-green-100 rounded-lg p-4 mb-2">
+                                        <p class="text-3xl font-bold text-green-700">${completedRequests}</p>
+                                    </div>
+                                    <p class="text-sm font-semibold text-gray-700">Completed</p>
+                                    <p class="text-xs text-gray-500">$${totalRevenue} earned</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid md:grid-cols-2 gap-6 mb-8">
+                            <!-- Service Breakdown Analytics -->
                             <div class="bg-white rounded-xl shadow-lg p-6">
-                                <h3 class="text-xl font-bold mb-4">Provider Status</h3>
-                                <div class="space-y-3">
-                                    ${state.providers.map(provider => `
-                                        <div class="border rounded-lg p-4">
-                                            <div class="flex justify-between items-center">
-                                                <div>
-                                                    <p class="font-semibold">${provider.name}</p>
-                                                    <p class="text-sm text-gray-600">${provider.specialty}</p>
+                                <h3 class="text-xl font-bold mb-4">Service Analytics</h3>
+                                <div class="space-y-4">
+                                    ${Object.keys(serviceBreakdown).length > 0 ? Object.entries(serviceBreakdown).map(([serviceName, data]) => {
+                                        const service = services.find(s => s.name === serviceName);
+                                        const completionRate = data.count > 0 ? Math.round((data.completed / data.count) * 100) : 0;
+                                        return `
+                                            <div class="border rounded-lg p-4">
+                                                <div class="flex items-center justify-between mb-2">
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="text-2xl">${service ? service.icon : '📋'}</span>
+                                                        <span class="font-semibold">${serviceName}</span>
+                                                    </div>
+                                                    <span class="text-sm font-bold text-indigo-600">${data.count} requests</span>
                                                 </div>
-                                                <div class="text-right">
-                                                    <span class="px-3 py-1 rounded-full text-sm ${provider.available ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
-                                                        ${provider.available ? 'Online' : 'Offline'}
-                                                    </span>
-                                                    <p class="text-xs text-gray-500 mt-1">â­ ${provider.rating} (${provider.completed})</p>
+                                                <div class="grid grid-cols-3 gap-2 text-sm">
+                                                    <div>
+                                                        <p class="text-gray-500 text-xs">Completed</p>
+                                                        <p class="font-semibold">${data.completed}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p class="text-gray-500 text-xs">Revenue</p>
+                                                        <p class="font-semibold">$${data.revenue}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p class="text-gray-500 text-xs">Rate</p>
+                                                        <p class="font-semibold">${completionRate}%</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('') : '<p class="text-gray-500 text-center py-8">No service data yet</p>'}
+                                </div>
+                            </div>
+
+                            <!-- Provider Performance Leaderboard -->
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <h3 class="text-xl font-bold mb-4">Provider Performance</h3>
+                                <div class="space-y-3">
+                                    ${providerPerformance.map((provider, index) => `
+                                        <div class="border rounded-lg p-4 ${provider.available ? 'bg-green-50 border-green-200' : ''}">
+                                            <div class="flex items-center justify-between mb-2">
+                                                <div class="flex items-center gap-3">
+                                                    ${index < 3 ? `<span class="text-xl">${['🥇', '🥈', '🥉'][index]}</span>` : `<span class="text-gray-400 font-bold">#${index + 1}</span>`}
+                                                    <div>
+                                                        <p class="font-semibold">${provider.name}</p>
+                                                        <p class="text-xs text-gray-500">${provider.specialty}</p>
+                                                    </div>
+                                                </div>
+                                                <span class="px-3 py-1 rounded-full text-xs font-semibold ${provider.available ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}">
+                                                    ${provider.available ? 'Online' : 'Offline'}
+                                                </span>
+                                            </div>
+                                            <div class="grid grid-cols-4 gap-2 text-sm">
+                                                <div>
+                                                    <p class="text-gray-500 text-xs">Total</p>
+                                                    <p class="font-semibold">${provider.requestCount}</p>
+                                                </div>
+                                                <div>
+                                                    <p class="text-gray-500 text-xs">Active</p>
+                                                    <p class="font-semibold text-blue-600">${provider.activeCount}</p>
+                                                </div>
+                                                <div>
+                                                    <p class="text-gray-500 text-xs">Done</p>
+                                                    <p class="font-semibold text-green-600">${provider.completedCount}</p>
+                                                </div>
+                                                <div>
+                                                    <p class="text-gray-500 text-xs">Revenue</p>
+                                                    <p class="font-semibold text-purple-600">$${provider.revenue}</p>
                                                 </div>
                                             </div>
                                         </div>
                                     `).join('')}
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Request Timeline -->
+                        <div class="bg-white rounded-xl shadow-lg p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-xl font-bold">Live Request Timeline</h3>
+                                <span class="text-sm text-gray-500">${totalRequests} total requests</span>
+                            </div>
+                            <div class="space-y-3 max-h-96 overflow-y-auto">
+                                ${requestTimeline.length > 0 ? requestTimeline.map(req => `
+                                    <div class="border rounded-lg p-4 hover:bg-gray-50 transition">
+                                        <div class="flex justify-between items-start">
+                                            <div class="flex-1">
+                                                <div class="flex items-center gap-3 mb-2">
+                                                    <span class="text-2xl">${req.icon || '📋'}</span>
+                                                    <div>
+                                                        <p class="font-semibold text-gray-900">${req.service}</p>
+                                                        <p class="text-xs text-gray-500">ID: ${req.id} • Created ${req.ageMinutes}m ago</p>
+                                                    </div>
+                                                </div>
+                                                ${req.description ? `<p class="text-sm text-gray-600 mb-2">${req.description}</p>` : ''}
+                                                <div class="flex items-center gap-4 text-xs text-gray-500">
+                                                    <span>⏱️ ${req.time}</span>
+                                                    ${req.provider ? `<span>👨‍⚕️ ${req.provider}</span>` : '<span>👨‍⚕️ Unassigned</span>'}
+                                                    ${req.scheduledTime ? `<span>📅 ${req.scheduledTime}</span>` : ''}
+                                                </div>
+                                            </div>
+                                            <div class="text-right ml-4">
+                                                <p class="text-2xl font-bold text-indigo-600 mb-2">$${req.price}</p>
+                                                <span class="px-3 py-1 rounded-full text-xs font-semibold ${
+                                                    req.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                                    req.status === 'matched' ? 'bg-orange-100 text-orange-800' :
+                                                    req.status === 'accepted' ? 'bg-blue-100 text-blue-800' :
+                                                    req.status === 'in-progress' ? 'bg-indigo-100 text-indigo-800' :
+                                                    'bg-green-100 text-green-800'
+                                                }">${req.status.toUpperCase()}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('') : '<p class="text-gray-500 text-center py-8">No requests yet</p>'}
                             </div>
                         </div>
                     </div>
